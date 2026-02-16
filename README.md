@@ -29,6 +29,12 @@ go build -o nforth ./cmd/nforth
 go test -v ./tests/main_test.go
 ```
 
+## Documentation
+
+- [Usage Guide](./docs/USAGE.md): Learn the nForth syntax and built-in words.
+- [Embedding Guide](./docs/EMBEDDING.md): How to integrate the VM into your Go app.
+- [Extending Guide](./docs/EXTENDING.md): How to add new tools and security scopes.
+
 ## Architecture & Engineering
 
 nForth operates a strictly sandboxed Virtual Machine. The core execution loop is designed for high-performance, zero-allocation horizontal scaling.
