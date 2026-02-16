@@ -16,21 +16,34 @@ The system follows a **Host-Guest Isolation Model**.
 
 ### 2.1 Performance Invariants
 * **Zero-Allocation:** The `Run()` loop MUST NOT allocate heap memory.
-* **Panic-Based Error Handling:** Internal stack overflows/underflows trigger a `panic`, which is caught by a `defer recover()` at the API boundary.
+* **Panic-Based Error Handling:** Internal stack overflows/underflows trigger a `panic`, which is caught by a `defer recover()` at the API boundary to return safe `error` values.
 * **Dispatch:** The Main Loop uses a **Big Switch** statement for maximum compiler optimization.
 
 ### 2.2 Memory Layout
 * **Stack:** Fixed-size `[128]Value` array.
 * **Value:** 16-byte Tagged Union (Type + 64-bit Data).
-    * **Strings:** Stored in a **Byte Buffer Arena**. `Value.Data` holds a packed `(Offset << 32 | Length)` integer.
+    * **Strings:** Stored in a **Byte Buffer Arena**. `Value.Data` holds a packed `(Offset << 32 | Length)` integer. No Go string headers on the stack.
 
-### 2.3 Opcode Map (Partial)
-| Opcode | Mnemonic | Description |
+### 2.3 Opcode Map
+| Hex | Mnemonic | Description |
 | :--- | :--- | :--- |
-| `0x04` | `OP_POP_L` | **(INTO)** Pops stack to Local Var. Enforces explicit state. |
+| `0x00` | `OP_HALT` | Stop execution. |
+| `0x02` | `OP_PUSH_C` | Push constant from pool to stack. |
+| `0x03` | `OP_PUSH_L` | Push local variable to stack. |
+| `0x04` | `OP_POP_L` | **(INTO)** Pop stack top into local var. |
+| `0x10` | `OP_ADD` | Integer addition. |
+| `0x11` | `OP_SUB` | Integer subtraction. |
+| `0x12` | `OP_MUL` | Integer multiplication. |
+| `0x13` | `OP_EQ` | Equality check. |
+| `0x14` | `OP_GT` | Greater than. |
+| `0x15` | `OP_PRINT` | Print value (mocked). |
+| `0x16` | `OP_CONTAINS` | String containment check. |
+| `0x17` | `OP_ERROR` | Trigger nForth runtime error. |
+| `0x20` | `OP_JMP` | Unconditional jump. |
+| `0x21` | `OP_JMP_FALSE`| Jump if top is false. |
 | `0x30` | `OP_ADDRESS`| Pushes a Security Scope to the active stack. |
 | `0x31` | `OP_EXIT_ADDR`| Pops the current Security Scope. |
-| `0x40` | `OP_SYSCALL`| Invokes a Host Function (Dynamic Registry). |
+| `0x40` | `OP_SYSCALL`| Invokes a registered Host Function. |
 
 ---
 
@@ -41,30 +54,26 @@ The system follows a **Host-Guest Isolation Model**.
 * **Token Sugar:**
     * `<ENV-GATE>` -> `TOKEN_SUGAR_GATE`
     * `->` -> `TOKEN_INTO`
-    * `THE`, `WITH` -> `TOKEN_NOISE` (Ignored)
+    * `THE`, `WITH`, `USING`, `FROM` -> `TOKEN_NOISE` (Ignored)
 
 ### 3.2 Parser & Validator
-* **The "INTO" Rule:** The parser tracks `VirtualStackDepth`. If a statement ends with `Depth > 0`, compilation **Halts Immediately**.
+* **The "INTO" Rule:** The parser tracks `VirtualStackDepth`. If a statement ends with `Depth > 0`, compilation **Halts Immediately** with a "Floating State" error.
 * **Scope Resolution:** Nested `ADDRESS` blocks create a **Cumulative Hierarchy**.
 
 ---
 
 ## 4. Security & Standard Library
 
-### 4.1 The Gateway Protocol
-* **Dynamic Registry:** Host functions are registered at runtime via `vm.Register(func)`.
-* **Privilege Drop:** Scopes are strictly LIFO. `OP_EXIT_ADDR` must be emitted at the end of every `ADDRESS` block.
-
-### 4.2 Standard Libraries (Sandboxed)
+### 4.1 Standard Libraries (Sandboxed)
 
 #### **FS-ENV (Filesystem)**
 * **Constraint 1:** **Root Jailing.** Paths resolved relative to workspace root.
 * **Constraint 2:** **Capability Split.** `fs:read` and `fs:write` are separate tokens.
-* **Constraint 3:** **Size Limits.** `WRITE` operations reject payloads > 5MB.
+* **Constraint 3:** **Size Limits.** `WRITE-FILE` operations reject payloads > 5MB.
 
 #### **HTTP-ENV (Network)**
 * **Constraint 1:** **Strict Allowlist.** Capability Token must specify allowed domains.
-* **Constraint 2:** **No Localhost.** Block `127.0.0.1`, `localhost`, and internal IP ranges.
+* **Constraint 2:** **No Localhost.** Blocked by default unless `AllowLocalhost` is enabled for testing.
 
 ---
 

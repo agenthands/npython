@@ -9,7 +9,7 @@
     - Zero-copy scanning for the Lexer.
 - **Security**: 
     - Capability-based access control.
-    - HMAC-SHA256 for token verification.
+    - HMAC-SHA256 for token verification (planned/mocked).
 - **Testing**: 
-    - 7-step TDD cycle.
-    - Benchmarking for 0-allocation verification and throughput (>1M ops/sec).
+    - Black-Box Integration Testing (`tests/main_test.go`).
+    - Benchmarking for 0-allocation verification and throughput.

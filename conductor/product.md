@@ -1,7 +1,7 @@
-# Product Definition: Natural FORTH (nFORTH) Execution Engine
+# Product Definition: nForth Engine
 
 ## Executive Summary
-The nFORTH Engine is a secure, zero-allocation Bytecode Virtual Machine designed to execute the Natural FORTH language. It acts as the actuation layer for AI Agents, replacing "ambient authority" interpreters with a constrained, capability-gated execution environment.
+The nForth Engine is a secure, zero-allocation Bytecode Virtual Machine designed to execute the Natural FORTH language. It acts as the actuation layer for AI Agents, replacing "ambient authority" interpreters with a constrained, capability-gated execution environment.
 
 ## Architectural Invariants
 1. **Host-Guest Isolation:** Go Runtime (Host) controls the VM (Guest). Guest has zero OS access without explicit Capability Tokens.
@@ -17,4 +17,4 @@ The nFORTH Engine is a secure, zero-allocation Bytecode Virtual Machine designed
 - **pkg/core/value**: 16-byte tagged union data representation.
 - **pkg/vm**: Fixed-size stack/frame execution engine.
 - **pkg/compiler**: EBNF-compliant parser with "Dangling Stack" validation.
-- **pkg/security**: `OP_ADDRESS` and `OP_SYSCALL` capability verification.
+- **pkg/security**: Capability-based access control for host function syscalls.
