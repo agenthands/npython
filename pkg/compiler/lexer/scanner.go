@@ -48,10 +48,14 @@ func (s *Scanner) Next() Token {
 		return s.scanGateSugar()
 	}
 
-	// 3. Handle Assignment Aliases (->)
+	// 3. Handle Assignment Aliases (->) and Comparison (!=)
 	if ch == '-' && s.peek() == '>' {
 		s.cursor += 2
 		return Token{Kind: KindInto, Offset: uint32(start), Length: 2, Line: uint32(s.line)}
+	}
+	if ch == '!' && s.peek() == '=' {
+		s.cursor += 2
+		return Token{Kind: KindIdentifier, Offset: uint32(start), Length: 2, Line: uint32(s.line)}
 	}
 
 	// 4. Handle Strings

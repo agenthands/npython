@@ -35,6 +35,12 @@ go test -v ./tests/main_test.go
 - [Embedding Guide](./docs/EMBEDDING.md): How to integrate the VM into your Go app.
 - [Extending Guide](./docs/EXTENDING.md): How to add new tools and security scopes.
 
+## Examples
+
+- [math.nf](./examples/math.nf): Basic arithmetic and function definitions.
+- [agent.nf](./examples/agent.nf): Secure data pipeline with `ADDRESS` gating.
+- [reconciliation_agent.nf](./examples/reconciliation_agent.nf): Complex real-world orchestration logic.
+
 ## Architecture & Engineering
 
 nForth operates a strictly sandboxed Virtual Machine. The core execution loop is designed for high-performance, zero-allocation horizontal scaling.

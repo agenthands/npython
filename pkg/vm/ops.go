@@ -9,7 +9,9 @@ const (
 	OP_ADD        uint8 = 0x10
 	OP_SUB        uint8 = 0x11
 	OP_MUL        uint8 = 0x12
+	OP_DIV        uint8 = 0x1a
 	OP_EQ         uint8 = 0x13
+	OP_NE         uint8 = 0x1b
 	OP_GT         uint8 = 0x14
 	OP_LT         uint8 = 0x18
 	OP_PRINT      uint8 = 0x15

@@ -183,11 +183,35 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			sp--
 			ip++
 
+		case OP_DIV:
+			b := m.Stack[sp-1].Data
+			a := m.Stack[sp-2].Data
+			if b == 0 {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return errors.New("vm: division by zero")
+			}
+			m.Stack[sp-2].Data = a / b
+			sp--
+			ip++
+
 		case OP_EQ:
 			b := m.Stack[sp-1].Data
 			a := m.Stack[sp-2].Data
 			var res uint64
 			if a == b {
+				res = 1
+			}
+			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
+			sp--
+			ip++
+
+		case OP_NE:
+			b := m.Stack[sp-1].Data
+			a := m.Stack[sp-2].Data
+			var res uint64
+			if a != b {
 				res = 1
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}

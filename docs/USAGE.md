@@ -88,8 +88,11 @@ ADDRESS FS-ENV "my-token"
 | Word | Stack | Description |
 | :--- | :--- | :--- |
 | `ADD`, `SUB`, `MUL`, `DIV` | `( a b -- res )` | Arithmetic |
-| `EQ`, `GT`, `LT` | `( a b -- bool )` | Comparison |
+| `EQ`, `NE`, `GT`, `LT` | `( a b -- bool )` | Comparison (`!=` is alias for `NE`) |
 | `PRINT` | `( val -- )` | Print to stdout |
 | `FETCH` | `( url -- data )` | HTTP GET (Requires `HTTP-ENV`) |
 | `WRITE-FILE` | `( data path -- )` | FS Write (Requires `FS-ENV`) |
 | `CONTAINS` | `( str pat -- bool )` | String search |
+| `YIELD` | `( val -- )` | Explicitly return a value from a function |
+| `EXIT` | `( -- )` | Early exit from function or block |
+| `THROW` | `( msg -- )` | Raise a runtime error |

@@ -142,7 +142,7 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		
 		// Check if it's a standard word
 		if sig, ok := parser.StandardWords[name]; ok {
-			if sig.RequiredScope != "" || name == "PRINT" {
+			if sig.RequiredScope != "" || name == "PRINT" || name == "PARSE-JSON" || name == "CROSS-REFERENCE" || name == "EXTRACT-MISSING" || name == "SEND-REQUEST" || name == "CHECK-STATUS" {
 				var hostIdx uint32
 				switch name {
 				case "WRITE-FILE":
@@ -151,8 +151,24 @@ func (e *Emitter) emitNode(node ast.Node) error {
 					hostIdx = 1
 				case "PRINT":
 					hostIdx = 2
+				case "PARSE-JSON":
+					hostIdx = 3
+				case "SEND-REQUEST":
+					hostIdx = 4
+				case "CHECK-STATUS":
+					hostIdx = 5
+				default:
+					// Add others as needed
+					hostIdx = 100 // placeholder
 				}
 				e.emitOp(vm.OP_SYSCALL, hostIdx)
+			} else if name == "EXIT" {
+				e.emitOp(vm.OP_RET, 0)
+			} else if name == "YIELD" {
+				// YIELD expects 1 arg (local or literal) to be pushed then RET
+				// But in nforth, the arg is ALREADY on the stack from the previous expr.
+				// So we just RET.
+				e.emitOp(vm.OP_RET, 0)
 			} else {
 				e.emitStandardWord(name)
 			}
@@ -300,8 +316,12 @@ func (e *Emitter) emitStandardWord(name string) {
 		e.emitOp(vm.OP_SUB, 0)
 	case "MUL":
 		e.emitOp(vm.OP_MUL, 0)
+	case "DIV":
+		e.emitOp(vm.OP_DIV, 0)
 	case "EQ":
 		e.emitOp(vm.OP_EQ, 0)
+	case "NE", "!=":
+		e.emitOp(vm.OP_NE, 0)
 	case "GT":
 		e.emitOp(vm.OP_GT, 0)
 	case "LT":
@@ -310,7 +330,7 @@ func (e *Emitter) emitStandardWord(name string) {
 		e.emitOp(vm.OP_PRINT, 0)
 	case "CONTAINS":
 		e.emitOp(vm.OP_CONTAINS, 0)
-	case "ERROR":
+	case "ERROR", "THROW":
 		e.emitOp(vm.OP_ERROR, 0)
 	}
 }
