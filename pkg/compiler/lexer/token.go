@@ -16,6 +16,7 @@ const (
 	KindRBrace     // }
 	KindAddress    // ADDRESS
 	KindSugarGate  // <ENV-GATE>
+	KindExit       // <EXIT>
 	KindNoise      // THE, WITH, USING, etc.
 	KindIf
 	KindElse

@@ -14,12 +14,11 @@ func TestMachineReset(t *testing.T) {
 	m.IP = 5
 	m.FP = 2
 	m.Stack[0] = value.Value{Type: value.TypeInt, Data: 100}
-	m.ActiveScope = "http:read"
 
 	m.Reset()
 
-	if m.SP != 0 || m.IP != 0 || m.FP != 0 || m.ActiveScope != "" {
-		t.Errorf("Reset failed: SP=%d, IP=%d, FP=%d, ActiveScope=%s", m.SP, m.IP, m.FP, m.ActiveScope)
+	if m.SP != 0 || m.IP != 0 || m.FP != 0 {
+		t.Errorf("Reset failed: SP=%d, IP=%d, FP=%d", m.SP, m.IP, m.FP)
 	}
 	
 	if m.Stack[0].Type != value.TypeVoid {

@@ -119,12 +119,18 @@ func (s *Scanner) scanGateSugar() Token {
 	}
 	
 	s.cursor++ // Skip '>'
+	
+	literal := s.source[innerStart : s.cursor-1]
+	if bytes.Equal(literal, []byte("EXIT")) {
+		return Token{Kind: KindExit, Offset: uint32(innerStart), Length: uint32(len(literal)), Line: uint32(s.line)}
+	}
+	
 	return Token{Kind: KindSugarGate, Offset: uint32(innerStart), Length: uint32(s.cursor - 1 - innerStart), Line: uint32(s.line)}
 }
 
 func (s *Scanner) scanString() Token {
 	start := s.cursor
-	s.cursor++ // Skip '"'
+	s.cursor++ // Skip opening '"'
 	for s.cursor < len(s.source) && s.source[s.cursor] != '"' {
 		if s.source[s.cursor] == '\n' {
 			s.line++
@@ -136,8 +142,8 @@ func (s *Scanner) scanString() Token {
 		return Token{Kind: KindError, Offset: uint32(start), Length: uint32(s.cursor - start), Line: uint32(s.line)}
 	}
 	
-	s.cursor++ // Skip '"'
-	return Token{Kind: KindString, Offset: uint32(start + 1), Length: uint32(s.cursor - 1 - (start + 1)), Line: uint32(s.line)}
+	s.cursor++ // Skip closing '"'
+	return Token{Kind: KindString, Offset: uint32(start), Length: uint32(s.cursor - start), Line: uint32(s.line)}
 }
 
 func (s *Scanner) scanNumber() Token {

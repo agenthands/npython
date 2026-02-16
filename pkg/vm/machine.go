@@ -2,15 +2,31 @@ package vm
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"github.com/agenthands/nforth/pkg/core/value"
 )
 
 var (
-	ErrStackOverflow  = errors.New("vm: stack overflow")
-	ErrStackUnderflow = errors.New("vm: stack underflow")
-	ErrGasExhausted   = errors.New("vm: gas exhausted")
+	ErrStackOverflow     = errors.New("vm: stack overflow")
+	ErrStackUnderflow    = errors.New("vm: stack underflow")
+	ErrGasExhausted      = errors.New("vm: gas exhausted")
+	ErrSecurityViolation = errors.New("vm: security violation")
 )
+
+// Gatekeeper validates capability tokens for a given scope.
+type Gatekeeper interface {
+	Validate(scope, token string) bool
+}
+
+// HostFunction is a Go function registered to the VM.
+type HostFunction func(m *Machine) error
+
+// HostFunctionEntry tracks a host function and its required security scope.
+type HostFunctionEntry struct {
+	Fn            HostFunction
+	RequiredScope string
+}
 
 const (
 	StackDepth = 128
@@ -42,7 +58,9 @@ type Machine struct {
 	Arena []byte
 
 	// Security Context
-	ActiveScope string
+	Gatekeeper   Gatekeeper
+	ScopeStack   []string
+	HostRegistry []HostFunctionEntry
 }
 
 // Reset clears the machine state for reuse (sync.Pool compliant).
@@ -50,7 +68,7 @@ func (m *Machine) Reset() {
 	m.SP = 0
 	m.IP = 0
 	m.FP = 0
-	m.ActiveScope = ""
+	m.ScopeStack = m.ScopeStack[:0]
 	
 	// Zero out the stack to avoid data leakage between agent runs
 	for i := range m.Stack {
@@ -61,6 +79,25 @@ func (m *Machine) Reset() {
 	for i := range m.Frames {
 		m.Frames[i] = Frame{}
 	}
+}
+
+// RegisterHostFunction adds a host-side Go function to the VM's registry.
+func (m *Machine) RegisterHostFunction(scope string, fn HostFunction) uint32 {
+	m.HostRegistry = append(m.HostRegistry, HostFunctionEntry{
+		Fn:            fn,
+		RequiredScope: scope,
+	})
+	return uint32(len(m.HostRegistry) - 1)
+}
+
+// HasScope checks if a capability scope is currently active in the cumulative stack.
+func (m *Machine) HasScope(scope string) bool {
+	for _, s := range m.ScopeStack {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
 
 // Push adds a value to the stack. Panics on overflow.
@@ -137,6 +174,55 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			m.Frames[fp].Locals[arg] = val
 			sp--
 			ip++
+
+		case OP_ADDRESS:
+			// Stack: ( scope token -- )
+			// token is at SP-1, scope is at SP-2
+			tokenPacked := m.Stack[sp-1].Data
+			scopePacked := m.Stack[sp-2].Data
+			sp -= 2
+
+			m.SP = sp // Sync before unpacking if needed, though UnpackString uses m.Arena
+			token := value.UnpackString(tokenPacked, m.Arena)
+			scope := value.UnpackString(scopePacked, m.Arena)
+
+			if m.Gatekeeper == nil || !m.Gatekeeper.Validate(scope, token) {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return ErrSecurityViolation
+			}
+
+			m.ScopeStack = append(m.ScopeStack, scope)
+			ip++
+
+		case OP_EXIT_ADDR:
+			if len(m.ScopeStack) > 0 {
+				m.ScopeStack = m.ScopeStack[:len(m.ScopeStack)-1]
+			}
+			ip++
+
+		case OP_SYSCALL:
+			entry := m.HostRegistry[arg]
+			if entry.RequiredScope != "" && !m.HasScope(entry.RequiredScope) {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return ErrSecurityViolation
+			}
+
+			// Sync Machine state before Syscall
+			m.IP = ip + 1
+			m.SP = sp
+			m.FP = fp
+
+			if err := entry.Fn(m); err != nil {
+				return err
+			}
+
+			// Restore state after Syscall (SP might have changed)
+			sp = m.SP
+			ip = m.IP
 
 		default:
 			m.IP = ip

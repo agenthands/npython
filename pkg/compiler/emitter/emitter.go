@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"github.com/agenthands/nforth/pkg/compiler/ast"
+	"github.com/agenthands/nforth/pkg/compiler/lexer"
 	"github.com/agenthands/nforth/pkg/compiler/parser"
 	"github.com/agenthands/nforth/pkg/core/value"
 	"github.com/agenthands/nforth/pkg/vm"
@@ -12,11 +13,13 @@ import (
 type Bytecode struct {
 	Instructions []uint32
 	Constants    []value.Value
+	Arena        []byte
 }
 
 type Emitter struct {
 	instructions []uint32
 	constants    []value.Value
+	arena        []byte
 	locals       map[string]int
 	src          []byte
 }
@@ -29,9 +32,11 @@ func NewEmitter(src []byte) *Emitter {
 }
 
 func (e *Emitter) Emit(prog *ast.Program) (*Bytecode, error) {
-	for _, node := range prog.Nodes {
-		if err := e.emitNode(node); err != nil {
-			return nil, err
+	if prog != nil {
+		for _, node := range prog.Nodes {
+			if err := e.emitNode(node); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -41,10 +46,14 @@ func (e *Emitter) Emit(prog *ast.Program) (*Bytecode, error) {
 	return &Bytecode{
 		Instructions: e.instructions,
 		Constants:    e.constants,
+		Arena:        e.arena,
 	}, nil
 }
 
 func (e *Emitter) emitNode(node ast.Node) error {
+	if node == nil {
+		return nil
+	}
 	switch n := node.(type) {
 	case *ast.Assignment:
 		for _, expr := range n.Expression {
@@ -62,18 +71,48 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		}
 		e.emitOp(vm.OP_POP_L, uint32(idx))
 
+	case *ast.VoidOperation:
+		for _, arg := range n.Args {
+			if err := e.emitNode(arg); err != nil {
+				return err
+			}
+		}
+		// The identifier part of the void op is already handled if it was an Expr.
+		// However, in our parser, parseExpr already emits for Identifiers.
+		// So VoidOperation is mostly a semantic container for the validator's benefit.
+
 	case *ast.NumberLiteral:
 		valStr := string(e.src[n.Token.Offset : n.Token.Offset+n.Token.Length])
 		val, _ := strconv.ParseInt(valStr, 10, 64)
 		constIdx := e.addConstant(value.Value{Type: value.TypeInt, Data: uint64(val)})
 		e.emitOp(vm.OP_PUSH_C, uint32(constIdx))
 
+	case *ast.StringLiteral:
+		valStr := string(e.src[n.Token.Offset : n.Token.Offset+n.Token.Length])
+		// Strip quotes
+		valStr = valStr[1 : len(valStr)-1]
+		constIdx := e.addConstant(value.Value{Type: value.TypeString, Data: e.packNewString(valStr)})
+		e.emitOp(vm.OP_PUSH_C, uint32(constIdx))
+
 	case *ast.Identifier:
 		name := string(e.src[n.Token.Offset : n.Token.Offset+n.Token.Length])
 		
 		// Check if it's a standard word
-		if _, ok := parser.StandardWords[name]; ok {
-			e.emitStandardWord(name)
+		if sig, ok := parser.StandardWords[name]; ok {
+			if sig.RequiredScope != "" {
+				// It's a SYSCALL. In a real system, we'd have a Registry to map 
+				// name -> HostFnIdx. For now, we'll hardcode some IDs.
+				var hostIdx uint32
+				switch name {
+				case "WRITE":
+					hostIdx = 0
+				case "FETCH":
+					hostIdx = 1
+				}
+				e.emitOp(vm.OP_SYSCALL, hostIdx)
+			} else {
+				e.emitStandardWord(name)
+			}
 		} else {
 			// Assume it's a local variable
 			idx, ok := e.locals[name]
@@ -84,11 +123,27 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		}
 
 	case *ast.SecurityGate:
-		// OP_ADDRESS ScopeIdx
-		// For now, we don't have a Scope Registry, so we'll push the name to constants
+		if n.IsExit {
+			e.emitOp(vm.OP_EXIT_ADDR, 0)
+			return nil
+		}
+		// Push Scope Name and Token to stack, then OP_ADDRESS
 		envName := string(e.src[n.Env.Offset : n.Env.Offset+n.Env.Length])
-		constIdx := e.addConstant(value.Value{Type: value.TypeString, Data: uint64(e.addStringConstant(envName))})
-		e.emitOp(vm.OP_ADDRESS, uint32(constIdx))
+						capToken := string(e.src[n.CapToken.Offset : n.CapToken.Offset+n.CapToken.Length])
+						if n.CapToken.Kind == lexer.KindString {
+							// Strip quotes if it was a string literal
+							capToken = capToken[1 : len(capToken)-1]
+						}
+				
+						// Add to constant pool and Arena
+				
+		
+		scopeIdx := e.addConstant(value.Value{Type: value.TypeString, Data: e.packNewString(envName)})
+		tokenIdx := e.addConstant(value.Value{Type: value.TypeString, Data: e.packNewString(capToken)})
+
+		e.emitOp(vm.OP_PUSH_C, uint32(scopeIdx))
+		e.emitOp(vm.OP_PUSH_C, uint32(tokenIdx))
+		e.emitOp(vm.OP_ADDRESS, 0)
 
 	default:
 		// Skip other nodes for this phase
@@ -111,10 +166,11 @@ func (e *Emitter) addConstant(v value.Value) int {
 	return len(e.constants) - 1
 }
 
-func (e *Emitter) addStringConstant(s string) int {
-	// This is a placeholder. In a real implementation, strings would be added to the Arena.
-	// For now, we'll just return a fake offset.
-	return 0 
+func (e *Emitter) packNewString(s string) uint64 {
+	offset := uint32(len(e.arena))
+	length := uint32(len(s))
+	e.arena = append(e.arena, []byte(s)...)
+	return value.PackString(offset, length)
 }
 
 func (e *Emitter) emitStandardWord(name string) {

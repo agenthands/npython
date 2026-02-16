@@ -82,6 +82,13 @@ func (p *Parser) parseStatement() (ast.Node, error) {
 		return p.parseAssignmentOrExpr()
 	case lexer.KindAddress, lexer.KindSugarGate:
 		return p.parseSecurityGate()
+	case lexer.KindExit:
+		tok := p.curTok
+		p.nextToken()
+		if len(p.scopes) > 0 {
+			p.scopes = p.scopes[:len(p.scopes)-1]
+		}
+		return &ast.SecurityGate{Token: tok, IsExit: true}, nil
 	case lexer.KindColon:
 		return p.parseDefinition()
 	default:
@@ -119,8 +126,21 @@ func (p *Parser) parseAssignmentOrExpr() (ast.Node, error) {
 		}
 
 		// End of statement check
-		if p.curTok.Kind == lexer.KindEOF || p.curTok.Kind == lexer.KindAddress || p.curTok.Kind == lexer.KindSugarGate || p.curTok.Kind == lexer.KindColon {
+		if p.curTok.Kind == lexer.KindEOF || p.curTok.Kind == lexer.KindAddress || p.curTok.Kind == lexer.KindSugarGate || p.curTok.Kind == lexer.KindExit || p.curTok.Kind == lexer.KindColon {
 			break
+		}
+	}
+
+	if len(exprs) > 0 {
+		// If depth is 0, it means the expressions consumed themselves (e.g. 1 2 WRITE)
+		// and it is a VoidOperation.
+		if p.depth == 0 {
+			// Find the last operation token for the VoidOperation
+			var lastTok lexer.Token
+			if len(exprs) > 0 {
+				lastTok = exprs[len(exprs)-1].Pos()
+			}
+			return &ast.VoidOperation{Token: lastTok, Args: exprs}, nil
 		}
 	}
 
@@ -144,18 +164,18 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 		literal := p.src[tok.Offset : tok.Offset+tok.Length]
 
 		if sig, ok := isStandardWord(literal); ok {
+			p.depth -= sig.In
+			if p.depth < 0 {
+				return nil, fmt.Errorf("Stack Underflow at line %d: word '%s' requires %d arguments", tok.Line, string(literal), sig.In)
+			}
+			p.depth += sig.Out
+			
 			// Scope Validation
 			if sig.RequiredScope != "" {
 				if !p.hasScope(sig.RequiredScope) {
 					return nil, fmt.Errorf("Security Violation at line %d: Word '%s' requires scope '%s'. Active scopes: %v", tok.Line, string(literal), sig.RequiredScope, p.scopes)
 				}
 			}
-
-			p.depth -= sig.In
-			if p.depth < 0 {
-				return nil, fmt.Errorf("Stack Underflow at line %d: word '%s' requires %d arguments", tok.Line, string(literal), sig.In)
-			}
-			p.depth += sig.Out
 		} else {
 			// Assume it's a local variable push
 			p.depth++
@@ -201,19 +221,19 @@ func (p *Parser) parseSecurityGate() (ast.Node, error) {
 		p.nextToken()
 	} else {
 		// ADDRESS ENV TOKEN
-		p.nextToken() // skip ADDRESS
+		p.nextToken() // move to ENV name
 		if p.curTok.Kind != lexer.KindIdentifier {
 			return nil, fmt.Errorf("expected environment name after ADDRESS")
 		}
 		gate.Env = p.curTok
 		p.scopes = append(p.scopes, string(p.src[p.curTok.Offset:p.curTok.Offset+p.curTok.Length]))
 
-		p.nextToken() // skip ENV
-		if p.curTok.Kind != lexer.KindIdentifier {
-			return nil, fmt.Errorf("expected capability token after environment name")
+		p.nextToken() // move to capability token
+		if p.curTok.Kind != lexer.KindIdentifier && p.curTok.Kind != lexer.KindString {
+			return nil, fmt.Errorf("expected capability token identifier or string after environment name")
 		}
 		gate.CapToken = p.curTok
-		p.nextToken() // skip TOKEN
+		p.nextToken() // consume token
 	}
 
 	return gate, nil

@@ -87,6 +87,7 @@ type SecurityGate struct {
 	Env         lexer.Token
 	CapToken    lexer.Token
 	IsSugarGate bool
+	IsExit      bool
 }
 
 func (s *SecurityGate) Pos() lexer.Token { return s.Token }
