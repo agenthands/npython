@@ -145,8 +145,8 @@ func TestSuite_Compiler_AntiHallucination(t *testing.T) {
 	if err == nil {
 		t.Fatal("Compiler Failure: Accepted floating state logic!")
 	}
-	if !strings.Contains(out, "Floating State") {
-		t.Errorf("Expected 'Floating State' error, got: %s", out)
+	if !strings.Contains(out, "Syntactic Hallucination Error") {
+		t.Errorf("Expected 'Syntactic Hallucination Error', got: %s", out)
 	}
 }
 

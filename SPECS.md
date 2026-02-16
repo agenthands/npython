@@ -8,7 +8,7 @@
 The system follows a **Host-Guest Isolation Model**.
 * **Host (Go Runtime):** Manages memory, I/O, and Capability Tokens.
 * **Guest (nForth VM):** A pure logic engine. It has **zero** direct access to the OS.
-* **Bridge (The Gateway):** The `OP_SYSCALL` instruction, guarded by `OP_ADDRESS`.
+* **AI-Native Design:** The LLM is completely shielded from stack operations. Only Named State (`INTO`) is allowed. Legacy words like `DUP` or `SWAP` are forbidden.
 
 ---
 
@@ -57,8 +57,8 @@ The system follows a **Host-Guest Isolation Model**.
     * `THE`, `WITH`, `USING`, `FROM` -> `TOKEN_NOISE` (Ignored)
 
 ### 3.2 Parser & Validator
-* **The "INTO" Rule:** The parser tracks `VirtualStackDepth`. If a statement ends with `Depth > 0`, compilation **Halts Immediately** with a "Floating State" error.
-* **Scope Resolution:** Nested `ADDRESS` blocks create a **Cumulative Hierarchy**.
+* **The "INTO" Rule:** The parser tracks `VirtualStackDepth`. If a statement ends with `Depth > 0`, compilation **Halts Immediately** with a `SyntacticHallucinationError`.
+* **No Legacy Words:** Usage of low-level stack operators (`DUP`, `SWAP`, `DROP`) triggers an immediate error, forcing the LLM to use explicit variables.
 
 ---
 

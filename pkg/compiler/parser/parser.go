@@ -21,7 +21,6 @@ var StandardWords = map[string]OpSignature{
 	"EQ":         {2, 1, ""},
 	"GT":         {2, 1, ""},
 	"LT":         {2, 1, ""},
-	"DUP":        {1, 2, ""},
 	"FETCH":      {1, 1, "HTTP-ENV"},
 	"WRITE-FILE": {2, 0, "FS-ENV"},
 	"PRINT":      {1, 0, ""},
@@ -80,7 +79,7 @@ func (p *Parser) Parse() (*ast.Program, error) {
 
 		// The "INTO" Enforcer: Check for Dangling Stack after each top-level statement
 		if p.depth != 0 {
-			return nil, fmt.Errorf("Floating State Detected at line %d. Stack depth is %d. All data must be assigned using 'INTO'.", p.curTok.Line, p.depth)
+			return nil, fmt.Errorf("Syntactic Hallucination Error at line %d: Floating State Detected. Stack depth is %d. All data must be assigned using 'INTO'.", p.curTok.Line, p.depth)
 		}
 	}
 
@@ -427,7 +426,7 @@ func (p *Parser) parseDefinition() (ast.Node, error) {
 	}
 
 	if p.depth != 0 {
-		return nil, fmt.Errorf("Floating State Detected in function '%s'. All data must be assigned using 'INTO'.", string(p.src[name.Offset:name.Offset+name.Length]))
+		return nil, fmt.Errorf("Syntactic Hallucination Error in function '%s': Floating State Detected. All data must be assigned using 'INTO'.", string(p.src[name.Offset:name.Offset+name.Length]))
 	}
 
 	// Restore depth

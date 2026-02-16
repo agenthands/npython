@@ -306,8 +306,6 @@ func (e *Emitter) emitStandardWord(name string) {
 		e.emitOp(vm.OP_GT, 0)
 	case "LT":
 		e.emitOp(vm.OP_LT, 0)
-	case "DUP":
-		e.emitOp(vm.OP_DUP, 0)
 	case "PRINT":
 		e.emitOp(vm.OP_PRINT, 0)
 	case "CONTAINS":

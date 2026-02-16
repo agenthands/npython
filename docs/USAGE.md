@@ -69,7 +69,6 @@ ADDRESS FS-ENV "my-token"
 | :--- | :--- | :--- |
 | `ADD`, `SUB`, `MUL` | `( a b -- res )` | Arithmetic |
 | `EQ`, `GT`, `LT` | `( a b -- bool )` | Comparison |
-| `DUP` | `( a -- a a )` | Duplicate top of stack |
 | `PRINT` | `( val -- )` | Print to stdout |
 | `FETCH` | `( url -- data )` | HTTP GET (Requires `HTTP-ENV`) |
 | `WRITE-FILE` | `( data path -- )` | FS Write (Requires `FS-ENV`) |

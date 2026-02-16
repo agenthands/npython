@@ -216,11 +216,6 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			sp--
 			ip++
 
-		case OP_DUP:
-			m.Stack[sp] = m.Stack[sp-1]
-			sp++
-			ip++
-
 		case OP_PRINT:
 			// ( val -- )
 			_ = m.Stack[sp-1]
