@@ -7,7 +7,7 @@
 
 \ Use the function
 5 SQUARE INTO five_squared
-five_sq PRINT
+five_squared PRINT
 
 \ Basic arithmetic with local variables
 10 INTO a
