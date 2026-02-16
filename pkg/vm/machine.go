@@ -205,6 +205,22 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			sp--
 			ip++
 
+		case OP_LT:
+			b := m.Stack[sp-1].Data
+			a := m.Stack[sp-2].Data
+			var res uint64
+			if a < b {
+				res = 1
+			}
+			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
+			sp--
+			ip++
+
+		case OP_DUP:
+			m.Stack[sp] = m.Stack[sp-1]
+			sp++
+			ip++
+
 		case OP_PRINT:
 			// ( val -- )
 			_ = m.Stack[sp-1]

@@ -104,3 +104,12 @@ type IfStmt struct {
 
 func (i *IfStmt) Pos() lexer.Token { return i.Token }
 func (i *IfStmt) stmtNode()        {}
+
+type WhileStmt struct {
+	Token lexer.Token
+	Setup []Expr // Code between BEGIN and WHILE
+	Body  []Statement
+}
+
+func (w *WhileStmt) Pos() lexer.Token { return w.Token }
+func (w *WhileStmt) stmtNode()        {}

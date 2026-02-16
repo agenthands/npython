@@ -21,6 +21,9 @@ const (
 	KindIf
 	KindElse
 	KindThen
+	KindBegin
+	KindWhile
+	KindRepeat
 )
 
 // Token represents a lexical unit pointing back to the source.

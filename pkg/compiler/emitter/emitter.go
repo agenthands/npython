@@ -21,13 +21,15 @@ type Emitter struct {
 	constants    []value.Value
 	arena        []byte
 	locals       map[string]int
+	functions    map[string]int // Name -> Start IP
 	src          []byte
 }
 
 func NewEmitter(src []byte) *Emitter {
 	return &Emitter{
-		locals: make(map[string]int),
-		src:    src,
+		locals:    make(map[string]int),
+		functions: make(map[string]int),
+		src:       src,
 	}
 }
 
@@ -55,6 +57,47 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		return nil
 	}
 	switch n := node.(type) {
+	case *ast.Definition:
+		// 1. Record function entry
+		name := string(e.src[n.Name.Offset : n.Name.Offset+n.Name.Length])
+		
+		// 2. Skip over function body during main execution
+		jmpIdx := len(e.instructions)
+		e.emitOp(vm.OP_JMP, 0)
+		
+		e.functions[name] = len(e.instructions)
+		
+		// 3. Reset locals for function scope
+		oldLocals := e.locals
+		e.locals = make(map[string]int)
+		
+		// Map parameters to locals 0, 1, 2...
+		for i, argTok := range n.Args {
+			argName := string(e.src[argTok.Offset : argTok.Offset+argTok.Length])
+			e.locals[argName] = i
+		}
+
+		// Pop parameters from the stack into their locals
+		// Since stack is [arg1, arg2], we pop in reverse order
+		// BUT we MUST pop only if they are on the stack!
+		// For a 1-arg function, i=0. Loop runs for i=0.
+		for i := len(n.Args) - 1; i >= 0; i-- {
+			e.emitOp(vm.OP_POP_L, uint32(i))
+		}
+
+		// 4. Emit Body
+		for _, stmt := range n.Body {
+			if err := e.emitNode(stmt); err != nil {
+				return err
+			}
+		}
+		
+		e.emitOp(vm.OP_RET, 0)
+		
+		// 5. Restore locals and backpatch jump
+		e.locals = oldLocals
+		e.instructions[jmpIdx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
+
 	case *ast.Assignment:
 		for _, expr := range n.Expression {
 			if err := e.emitNode(expr); err != nil {
@@ -99,23 +142,27 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		
 		// Check if it's a standard word
 		if sig, ok := parser.StandardWords[name]; ok {
-			if sig.RequiredScope != "" {
+			if sig.RequiredScope != "" || name == "PRINT" {
 				var hostIdx uint32
 				switch name {
 				case "WRITE-FILE":
 					hostIdx = 0
 				case "FETCH":
 					hostIdx = 1
+				case "PRINT":
+					hostIdx = 2
 				}
 				e.emitOp(vm.OP_SYSCALL, hostIdx)
 			} else {
 				e.emitStandardWord(name)
 			}
+		} else if startIP, isFunc := e.functions[name]; isFunc {
+			e.emitOp(vm.OP_CALL, uint32(startIP))
 		} else {
-			// Assume it's a local variable
+			// Assume it's a local variable (includes params)
 			idx, ok := e.locals[name]
 			if !ok {
-				return fmt.Errorf("undefined identifier: %s", name)
+				return fmt.Errorf("undefined identifier: %s at line %d", name, n.Token.Line)
 			}
 			e.emitOp(vm.OP_PUSH_L, uint32(idx))
 		}
@@ -165,6 +212,34 @@ func (e *Emitter) emitNode(node ast.Node) error {
 			// Backpatch JMP_FALSE to END
 			e.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
 		}
+
+	case *ast.WhileStmt:
+		// 1. Loop Start (Target for jump back)
+		loopStartIdx := len(e.instructions)
+
+		// 2. Setup/Condition code (evaluates to bool)
+		for _, s := range n.Setup {
+			if err := e.emitNode(s); err != nil {
+				return err
+			}
+		}
+
+		// 3. JMP_FALSE to END (Exit loop if bool is 0)
+		jumpFalseIdx := len(e.instructions)
+		e.emitOp(vm.OP_JMP_FALSE, 0)
+
+		// 4. Body
+		for _, stmt := range n.Body {
+			if err := e.emitNode(stmt); err != nil {
+				return err
+			}
+		}
+
+		// 5. JMP to START (Back to condition check)
+		e.emitOp(vm.OP_JMP, uint32(loopStartIdx))
+
+		// 6. Backpatch JMP_FALSE to END
+		e.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
 
 	case *ast.SecurityGate:
 		if n.IsExit {
@@ -229,6 +304,10 @@ func (e *Emitter) emitStandardWord(name string) {
 		e.emitOp(vm.OP_EQ, 0)
 	case "GT":
 		e.emitOp(vm.OP_GT, 0)
+	case "LT":
+		e.emitOp(vm.OP_LT, 0)
+	case "DUP":
+		e.emitOp(vm.OP_DUP, 0)
 	case "PRINT":
 		e.emitOp(vm.OP_PRINT, 0)
 	case "CONTAINS":

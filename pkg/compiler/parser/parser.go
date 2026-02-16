@@ -20,6 +20,8 @@ var StandardWords = map[string]OpSignature{
 	"MUL":        {2, 1, ""},
 	"EQ":         {2, 1, ""},
 	"GT":         {2, 1, ""},
+	"LT":         {2, 1, ""},
+	"DUP":        {1, 2, ""},
 	"FETCH":      {1, 1, "HTTP-ENV"},
 	"WRITE-FILE": {2, 0, "FS-ENV"},
 	"PRINT":      {1, 0, ""},
@@ -35,12 +37,15 @@ type Parser struct {
 	depth  int      // Virtual Stack Depth
 	scopes []string // Active capability scopes
 	src    []byte
+
+	functions map[string]int // Name -> Arg Count
 }
 
 func NewParser(s *lexer.Scanner, src []byte) *Parser {
 	p := &Parser{
-		scanner: s,
-		src:     src,
+		scanner:   s,
+		src:       src,
+		functions: make(map[string]int),
 	}
 	// Read two tokens, so curTok and peekTok are both set
 	p.nextToken()
@@ -68,9 +73,12 @@ func (p *Parser) Parse() (*ast.Program, error) {
 		}
 		if stmt != nil {
 			program.Nodes = append(program.Nodes, stmt)
+		} else if p.curTok.Kind != lexer.KindEOF {
+			// If statement returned nil but not EOF, something is wrong
+			return nil, fmt.Errorf("unexpected token at line %d: %v", p.curTok.Line, p.curTok.Kind)
 		}
 
-		// The "INTO" Enforcer: Check for Dangling Stack after each statement
+		// The "INTO" Enforcer: Check for Dangling Stack after each top-level statement
 		if p.depth != 0 {
 			return nil, fmt.Errorf("Floating State Detected at line %d. Stack depth is %d. All data must be assigned using 'INTO'.", p.curTok.Line, p.depth)
 		}
@@ -92,6 +100,10 @@ func (p *Parser) parseStatement() (ast.Node, error) {
 			p.scopes = p.scopes[:len(p.scopes)-1]
 		}
 		return &ast.SecurityGate{Token: tok, IsExit: true}, nil
+	case lexer.KindIf:
+		return p.parseIfStmt(nil)
+	case lexer.KindBegin:
+		return p.parseWhileStmt()
 	case lexer.KindColon:
 		return p.parseDefinition()
 	default:
@@ -142,17 +154,68 @@ func (p *Parser) parseIfStmt(setup []ast.Expr) (ast.Node, error) {
 	}, nil
 }
 
-func (p *Parser) parseBlock(terminators []lexer.Kind) ([]ast.Statement, error) {
-	var stmts []ast.Statement
-	for !p.isTerminator(p.curTok.Kind, terminators) && p.curTok.Kind != lexer.KindEOF {
-		stmt, err := p.parseStatement()
+func (p *Parser) parseWhileStmt() (ast.Node, error) {
+	beginTok := p.curTok
+	p.nextToken() // skip BEGIN
+
+	// 1. Parse setup/condition until WHILE
+	var setup []ast.Expr
+	for p.curTok.Kind != lexer.KindWhile && p.curTok.Kind != lexer.KindEOF {
+		node, err := p.parseStatement()
 		if err != nil {
 			return nil, err
 		}
-		if s, ok := stmt.(ast.Statement); ok {
+		
+		// If it's a VoidOperation, it might be "i limit LT" which is now a VoidOp 
+		// because its depth was 0? Wait, LT should have depth 1.
+		if vo, ok := node.(*ast.VoidOperation); ok {
+			setup = append(setup, vo.Args...)
+		} else if e, ok := node.(ast.Expr); ok {
+			setup = append(setup, e)
+		} else if a, ok := node.(*ast.Assignment); ok {
+			// Assignments in setup push their result?
+			setup = append(setup, a.Expression...)
+		}
+	}
+
+	if p.curTok.Kind != lexer.KindWhile {
+		return nil, fmt.Errorf("expected WHILE after BEGIN block, got %v", p.curTok.Kind)
+	}
+	p.nextToken() // skip WHILE
+	
+	// WHILE consumes the condition bool produced by setup
+	p.depth-- 
+
+	// 2. Parse body until REPEAT
+	body, err := p.parseBlock([]lexer.Kind{lexer.KindRepeat})
+	if err != nil {
+		return nil, err
+	}
+
+	if p.curTok.Kind != lexer.KindRepeat {
+		return nil, fmt.Errorf("expected REPEAT at end of loop, got %v", p.curTok.Kind)
+	}
+	p.nextToken() // skip REPEAT
+
+	return &ast.WhileStmt{
+		Token: beginTok,
+		Setup: setup,
+		Body:  body,
+	}, nil
+}
+
+func (p *Parser) parseBlock(terminators []lexer.Kind) ([]ast.Statement, error) {
+	var stmts []ast.Statement
+	for !p.isTerminator(p.curTok.Kind, terminators) && p.curTok.Kind != lexer.KindEOF {
+		node, err := p.parseStatement()
+		if err != nil {
+			return nil, err
+		}
+		if s, ok := node.(ast.Statement); ok {
 			stmts = append(stmts, s)
-		} else if stmt != nil {
-			// Handle Node that is not a Statement (e.g. Definition if allowed in blocks)
+		} else if node != nil {
+			// Wrap Expr into VoidOperation if found standalone in a block?
+			// For now, assume statements are Assignments or VoidOps
 		}
 	}
 	return stmts, nil
@@ -178,23 +241,29 @@ func (p *Parser) parseAssignmentOrExpr() (ast.Node, error) {
 		exprs = append(exprs, expr)
 
 		if p.curTok.Kind == lexer.KindIf {
-			// The entire expression before IF is part of the setup/condition
 			return p.parseIfStmt(exprs)
+		}
+		if p.curTok.Kind == lexer.KindWhile {
+			break
+		}
+		if p.curTok.Kind == lexer.KindRepeat {
+			break
+		}
+		if p.curTok.Kind == lexer.KindSemicolon {
+			break
+		}
+		if p.curTok.Kind == lexer.KindElse || p.curTok.Kind == lexer.KindThen {
+			break
 		}
 
 		if p.curTok.Kind == lexer.KindInto {
 			p.nextToken() // move to target identifier
-
 			if p.curTok.Kind != lexer.KindIdentifier {
 				return nil, fmt.Errorf("expected identifier after INTO, got %v", p.curTok.Kind)
 			}
-
 			target := p.curTok
 			p.nextToken()
-
-			// INTO consumes the top of the stack
 			p.depth--
-
 			return &ast.Assignment{
 				Expression: exprs,
 				Target:     target,
@@ -208,16 +277,9 @@ func (p *Parser) parseAssignmentOrExpr() (ast.Node, error) {
 	}
 
 	if len(exprs) > 0 {
-		// If depth is 0, it means the expressions consumed themselves (e.g. 1 2 WRITE)
-		// and it is a VoidOperation.
-		if p.depth == 0 {
-			// Find the last operation token for the VoidOperation
-			var lastTok lexer.Token
-			if len(exprs) > 0 {
-				lastTok = exprs[len(exprs)-1].Pos()
-			}
-			return &ast.VoidOperation{Token: lastTok, Args: exprs}, nil
-		}
+		// Return a VoidOperation that contains all terms to be emitted
+		lastTok := exprs[len(exprs)-1].Pos()
+		return &ast.VoidOperation{Token: lastTok, Args: exprs}, nil
 	}
 
 	return nil, nil
@@ -252,6 +314,17 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 					return nil, fmt.Errorf("Security Violation at line %d: Word '%s' requires scope '%s'. Active scopes: %v", tok.Line, string(literal), sig.RequiredScope, p.scopes)
 				}
 			}
+		} else if argCount, isFunc := p.functions[string(literal)]; isFunc {
+			p.depth -= argCount
+			if p.depth < 0 {
+				return nil, fmt.Errorf("Stack Underflow at line %d: function '%s' requires %d arguments", tok.Line, string(literal), argCount)
+			}
+			// Functions return void in current spec?
+			// Spec says "SQUARE { n } n n MUL INTO res"
+			// In Forth, SQUARE would return 1 value.
+			// In our current spec, they seem to return void (pop internally).
+			// If we want functions to return values, we'd add +1 here.
+			// Based on the TestSuite_FunctionDefinitions, it looks like void.
 		} else {
 			// Assume it's a local variable push
 			p.depth++
@@ -316,7 +389,62 @@ func (p *Parser) parseSecurityGate() (ast.Node, error) {
 }
 
 func (p *Parser) parseDefinition() (ast.Node, error) {
-	// Minimal implementation for now to satisfy Parse() loop
+	p.nextToken() // skip :
+	if p.curTok.Kind != lexer.KindIdentifier {
+		return nil, fmt.Errorf("expected function name after ':', got %v", p.curTok.Kind)
+	}
+	name := p.curTok
 	p.nextToken()
-	return nil, nil
+
+	if p.curTok.Kind != lexer.KindLBrace {
+		return nil, fmt.Errorf("expected '{' for local variable declaration")
+	}
+	p.nextToken()
+
+	var args []lexer.Token
+	for p.curTok.Kind == lexer.KindIdentifier {
+		args = append(args, p.curTok)
+		p.nextToken()
+	}
+
+	if p.curTok.Kind != lexer.KindRBrace {
+		return nil, fmt.Errorf("expected '}' after local variables")
+	}
+	p.nextToken()
+
+	// Register function for stack effect tracking (Name -> Arg Count)
+	nameStr := string(p.src[name.Offset : name.Offset+name.Length])
+	p.functions[nameStr] = len(args)
+
+	// Save and reset depth for function scope
+	oldDepth := p.depth
+	p.depth = 0
+
+	// Body continues until ;
+	body, err := p.parseBlock([]lexer.Kind{lexer.KindSemicolon})
+	if err != nil {
+		return nil, err
+	}
+
+	if p.depth != 0 {
+		return nil, fmt.Errorf("Floating State Detected in function '%s'. All data must be assigned using 'INTO'.", string(p.src[name.Offset:name.Offset+name.Length]))
+	}
+
+	// Restore depth
+	p.depth = oldDepth
+
+	if p.curTok.Kind != lexer.KindSemicolon {
+		return nil, fmt.Errorf("expected ';' at end of definition")
+	}
+	p.nextToken()
+
+	// Register function for stack effect tracking (Name -> Arg Count)
+	p.functions[string(p.src[name.Offset:name.Offset+name.Length])] = len(args)
+
+	return &ast.Definition{
+		Token: name, // Using name as Pos
+		Name:  name,
+		Args:  args,
+		Body:  body,
+	}, nil
 }

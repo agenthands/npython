@@ -8,6 +8,7 @@ import (
 	"github.com/agenthands/nforth/pkg/compiler/emitter"
 	"github.com/agenthands/nforth/pkg/compiler/lexer"
 	"github.com/agenthands/nforth/pkg/compiler/parser"
+	"github.com/agenthands/nforth/pkg/core/value"
 	"github.com/agenthands/nforth/pkg/stdlib"
 	"github.com/agenthands/nforth/pkg/vm"
 )
@@ -29,6 +30,7 @@ func main() {
 
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 	gasLimit := runCmd.Int("gas", 1000000, "Maximum instruction limit")
+	argFlag := runCmd.Int64("arg", 0, "Initial argument to push to stack")
 	
 	scriptPath := os.Args[2]
 	runCmd.Parse(os.Args[3:])
@@ -62,6 +64,11 @@ func main() {
 	m.Constants = bc.Constants
 	m.Arena = bc.Arena
 
+	// Push initial argument if it's provided via flag
+	if *argFlag != 0 {
+		m.Push(value.Value{Type: value.TypeInt, Data: uint64(*argFlag)})
+	}
+
 	// Security setup
 	m.Gatekeeper = &cliGatekeeper{}
 	
@@ -76,6 +83,17 @@ func main() {
 	// FETCH = 1
 	m.RegisterHostFunction("FS-ENV", fsSandbox.WriteFile)
 	m.RegisterHostFunction("HTTP-ENV", httpSandbox.Fetch)
+	
+	// Optional: Register non-scoped words as syscalls if they need complex logic
+	m.RegisterHostFunction("", func(m *vm.Machine) error {
+		val := m.Pop()
+		if val.Type == value.TypeString {
+			fmt.Println(value.UnpackString(val.Data, m.Arena))
+		} else {
+			fmt.Println(val.Data)
+		}
+		return nil
+	})
 
 	// 4. Run
 	err = m.Run(*gasLimit)

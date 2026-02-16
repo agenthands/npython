@@ -177,6 +177,12 @@ func (s *Scanner) scanIdentifier() Token {
 		kind = KindElse
 	} else if bytes.Equal(literal, []byte("THEN")) {
 		kind = KindThen
+	} else if bytes.Equal(literal, []byte("BEGIN")) {
+		kind = KindBegin
+	} else if bytes.Equal(literal, []byte("WHILE")) {
+		kind = KindWhile
+	} else if bytes.Equal(literal, []byte("REPEAT")) {
+		kind = KindRepeat
 	} else if isNoise(literal) {
 		kind = KindNoise
 	}

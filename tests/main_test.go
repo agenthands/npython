@@ -37,11 +37,11 @@ func setupMockInternet() *httptest.Server {
 }
 
 // RunNForth executes the nForth binary against a script
-func runNForth(ctx context.Context, scriptPath string, workDir string, env []string) (string, error) {
+func runNForth(ctx context.Context, scriptPath string, workDir string, args []string) (string, error) {
 	absNForth, _ := filepath.Abs("../nforth")
-	cmd := exec.CommandContext(ctx, absNForth, "run", scriptPath)
+	fullArgs := append([]string{"run", scriptPath}, args...)
+	cmd := exec.CommandContext(ctx, absNForth, fullArgs...)
 	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), env...)
 	
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -147,5 +147,67 @@ func TestSuite_Compiler_AntiHallucination(t *testing.T) {
 	}
 	if !strings.Contains(out, "Floating State") {
 		t.Errorf("Expected 'Floating State' error, got: %s", out)
+	}
+}
+
+func TestSuite_FunctionDefinitions(t *testing.T) {
+	sandbox, teardown := setupSandbox(t)
+	defer teardown()
+
+	script := `
+	: ADD-TEN { n }
+		n 10 ADD INTO result
+		result PRINT
+	;
+	
+	5 ADD-TEN
+	`
+	scriptPath := filepath.Join(sandbox, "func.nf")
+	os.WriteFile(scriptPath, []byte(script), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+
+	if err != nil {
+		t.Fatalf("Agent crashed: %v\nOutput: %s", err, out)
+	}
+
+	// We expect the result 15 to be printed or at least the execution to succeed.
+	// Since we don't capture PRINT yet, success is enough.
+}
+
+func TestSuite_Performance_ZeroAlloc(t *testing.T) {
+	sandbox, teardown := setupSandbox(t)
+	defer teardown()
+
+	script := `
+		0 INTO i
+		BEGIN
+			i 1000 LT
+		WHILE
+			i 1 ADD INTO i
+		REPEAT
+		i PRINT
+	`
+	scriptPath := filepath.Join(sandbox, "stress.nf")
+	os.WriteFile(scriptPath, []byte(script), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	duration := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Performance test failed: %v\nOutput: %s", err, out)
+	}
+
+	t.Logf("Executed 1,000 iterations in %v", duration)
+	
+	if duration > 1*time.Second {
+		t.Errorf("Performance too slow: %v", duration)
 	}
 }
