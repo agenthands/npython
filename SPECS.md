@@ -34,13 +34,18 @@ The system follows a **Host-Guest Isolation Model**.
 | `0x10` | `OP_ADD` | Integer addition. |
 | `0x11` | `OP_SUB` | Integer subtraction. |
 | `0x12` | `OP_MUL` | Integer multiplication. |
+| `0x1a` | `OP_DIV` | Integer division. |
 | `0x13` | `OP_EQ` | Equality check. |
+| `0x1b` | `OP_NE` | Inequality check (`!=`). |
 | `0x14` | `OP_GT` | Greater than. |
+| `0x18` | `OP_LT` | Less than. |
 | `0x15` | `OP_PRINT` | Print value (mocked). |
 | `0x16` | `OP_CONTAINS` | String containment check. |
-| `0x17` | `OP_ERROR` | Trigger nForth runtime error. |
+| `0x17` | `OP_ERROR` | Trigger nForth runtime error (`THROW`). |
 | `0x20` | `OP_JMP` | Unconditional jump. |
 | `0x21` | `OP_JMP_FALSE`| Jump if top is false. |
+| `0x22` | `OP_CALL` | Call internal function. |
+| `0x23` | `OP_RET` | Return from function (`YIELD`, `EXIT`). |
 | `0x30` | `OP_ADDRESS`| Pushes a Security Scope to the active stack. |
 | `0x31` | `OP_EXIT_ADDR`| Pops the current Security Scope. |
 | `0x40` | `OP_SYSCALL`| Invokes a registered Host Function. |
@@ -58,7 +63,8 @@ The system follows a **Host-Guest Isolation Model**.
 
 ### 3.2 Parser & Validator
 * **The "INTO" Rule:** The parser tracks `VirtualStackDepth`. If a statement ends with `Depth > 0`, compilation **Halts Immediately** with a `SyntacticHallucinationError`.
-* **No Legacy Words:** Usage of low-level stack operators (`DUP`, `SWAP`, `DROP`) triggers an immediate error, forcing the LLM to use explicit variables.
+* **Function Signatures:** The compiler tracks if a function is *Void* or *Fruitful* (uses `YIELD`). Calls to fruitful functions increment the stack depth, requiring an `INTO` grounding.
+* **Scope Resolution:** Nested `ADDRESS` blocks create a **Cumulative Hierarchy**.
 
 ---
 
@@ -79,6 +85,9 @@ The system follows a **Host-Guest Isolation Model**.
 
 ## 5. Verified E2E Scenarios
 The following scenarios are verified in the `tests/main_test.go` suite:
-1. **The Happy Path (Data Pipeline)**: Fetches data from a mock server, validates it, and writes a success report.
-2. **The Red Team (Jailbreak Attempt)**: Confirms the engine blocks path traversal (`../`) attacks.
-3. **The Anti-Hallucination (Compiler)**: Confirms the compiler rejects code with floating stack values (missing `INTO`).
+1. **The Happy Path (Data Pipeline)**: Fetches data, validates containment, and writes reports.
+2. **The Red Team (Jailbreak Attempt)**: Confirms the engine blocks path traversal attacks.
+3. **The Anti-Hallucination (Compiler)**: Confirms the compiler rejects code with floating stack values.
+4. **Logic & Arithmetic**: Verifies `DIV`, `NE`, `!=`, and nested comparison logic.
+5. **Function Definitions**: Verifies argument passing and `YIELD` value returns.
+6. **Early Exit**: Verifies `EXIT` correctly terminates execution.

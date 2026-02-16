@@ -66,12 +66,23 @@ REPEAT
 ### 3. Function Definitions
 Functions are defined using the `:` word. Arguments are named in `{ }` and are automatically popped into local variables at the start of the function.
 
+#### Void Functions
+If a function does not use `YIELD`, it returns no value to the caller.
 ```forth
-: CALC-TOTAL { price tax-rate }
-  price tax-rate MUL 100 DIV INTO tax-amount
-  price tax-amount ADD INTO total
-  total RETURN
+: LOG-RESULT { res }
+  res PRINT
 ;
+```
+
+#### Fruitful Functions (Returning Values)
+Use `YIELD` to pass a value back to the caller's stack.
+```forth
+: SQUARE { n }
+  n n MUL INTO result
+  result YIELD
+;
+
+5 SQUARE INTO five_sq
 ```
 
 ### 4. Security Gates (`ADDRESS`)
