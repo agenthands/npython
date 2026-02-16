@@ -53,6 +53,12 @@ var StandardWords = map[string]OpSignature{
 	"ADD-JSON-PAYLOAD": {2, 0, ""},
 }
 
+// FunctionSignature tracks function metadata for compiler validation
+type FunctionSignature struct {
+	ArgCount int
+	Returns  bool
+}
+
 type Parser struct {
 	scanner *lexer.Scanner
 	curTok  lexer.Token
@@ -62,14 +68,14 @@ type Parser struct {
 	scopes []string // Active capability scopes
 	src    []byte
 
-	functions map[string]int // Name -> Arg Count
+	functions map[string]FunctionSignature
 }
 
 func NewParser(s *lexer.Scanner, src []byte) *Parser {
 	p := &Parser{
 		scanner:   s,
 		src:       src,
-		functions: make(map[string]int),
+		functions: make(map[string]FunctionSignature),
 	}
 	// Read two tokens, so curTok and peekTok are both set
 	p.nextToken()
@@ -332,23 +338,25 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 			}
 			p.depth += sig.Out
 			
+			// YIELD is special: it satisfies the depth check by returning the result
+			if string(literal) == "YIELD" {
+				p.depth = 0
+			}
+			
 			// Scope Validation
 			if sig.RequiredScope != "" {
 				if !p.hasScope(sig.RequiredScope) {
 					return nil, fmt.Errorf("Security Violation at line %d: Word '%s' requires scope '%s'. Active scopes: %v", tok.Line, string(literal), sig.RequiredScope, p.scopes)
 				}
 			}
-		} else if argCount, isFunc := p.functions[string(literal)]; isFunc {
-			p.depth -= argCount
+		} else if sig, isFunc := p.functions[string(literal)]; isFunc {
+			p.depth -= sig.ArgCount
 			if p.depth < 0 {
-				return nil, fmt.Errorf("Stack Underflow at line %d: function '%s' requires %d arguments", tok.Line, string(literal), argCount)
+				return nil, fmt.Errorf("Stack Underflow at line %d: function '%s' requires %d arguments", tok.Line, string(literal), sig.ArgCount)
 			}
-			// Functions return void in current spec?
-			// Spec says "SQUARE { n } n n MUL INTO res"
-			// In Forth, SQUARE would return 1 value.
-			// In our current spec, they seem to return void (pop internally).
-			// If we want functions to return values, we'd add +1 here.
-			// Based on the TestSuite_FunctionDefinitions, it looks like void.
+			if sig.Returns {
+				p.depth += 1
+			}
 		} else {
 			// Assume it's a local variable push
 			p.depth++
@@ -436,9 +444,10 @@ func (p *Parser) parseDefinition() (ast.Node, error) {
 	}
 	p.nextToken()
 
-	// Register function for stack effect tracking (Name -> Arg Count)
 	nameStr := string(p.src[name.Offset : name.Offset+name.Length])
-	p.functions[nameStr] = len(args)
+	
+	// Register function early to allow recursion (metadata updated later)
+	p.functions[nameStr] = FunctionSignature{ArgCount: len(args), Returns: false}
 
 	// Save and reset depth for function scope
 	oldDepth := p.depth
@@ -450,9 +459,21 @@ func (p *Parser) parseDefinition() (ast.Node, error) {
 		return nil, err
 	}
 
-	if p.depth != 0 {
-		return nil, fmt.Errorf("Syntactic Hallucination Error in function '%s': Floating State Detected. All data must be assigned using 'INTO'.", string(p.src[name.Offset:name.Offset+name.Length]))
+	// Determine if the function is fruitful
+	hasYield := false
+	for _, stmt := range body {
+		if p.isYield(stmt) {
+			hasYield = true
+			break
+		}
 	}
+
+	if p.depth != 0 && !hasYield {
+		return nil, fmt.Errorf("Syntactic Hallucination Error in function '%s': Floating State Detected. All data must be assigned using 'INTO'.", nameStr)
+	}
+
+	// Final registration with correct return info
+	p.functions[nameStr] = FunctionSignature{ArgCount: len(args), Returns: hasYield}
 
 	// Restore depth
 	p.depth = oldDepth
@@ -462,13 +483,29 @@ func (p *Parser) parseDefinition() (ast.Node, error) {
 	}
 	p.nextToken()
 
-	// Register function for stack effect tracking (Name -> Arg Count)
-	p.functions[string(p.src[name.Offset:name.Offset+name.Length])] = len(args)
-
 	return &ast.Definition{
 		Token: name, // Using name as Pos
 		Name:  name,
 		Args:  args,
 		Body:  body,
 	}, nil
+}
+
+func (p *Parser) isYield(node ast.Node) bool {
+	switch n := node.(type) {
+	case *ast.VoidOperation:
+		for _, arg := range n.Args {
+			if p.isYield(arg) { return true }
+		}
+		// Check the operator itself
+		return string(p.src[n.Token.Offset:n.Token.Offset+n.Token.Length]) == "YIELD"
+	case *ast.Identifier:
+		return string(p.src[n.Token.Offset:n.Token.Offset+n.Token.Length]) == "YIELD"
+	case *ast.IfStmt:
+		for _, s := range n.ThenBranch { if p.isYield(s) { return true } }
+		for _, s := range n.ElseBranch { if p.isYield(s) { return true } }
+	case *ast.WhileStmt:
+		for _, s := range n.Body { if p.isYield(s) { return true } }
+	}
+	return false
 }

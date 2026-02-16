@@ -211,3 +211,109 @@ func TestSuite_Performance_ZeroAlloc(t *testing.T) {
 		t.Errorf("Performance too slow: %v", duration)
 	}
 }
+
+func TestSuite_Arithmetic_Logic(t *testing.T) {
+	sandbox, teardown := setupSandbox(t)
+	defer teardown()
+
+	script := `
+		100 10 DIV INTO d
+		d 10 EQ INTO res1
+		
+		5 10 != INTO res2
+		5 5 NE INTO res3
+		
+		res1 PRINT
+		res2 PRINT
+		res3 PRINT
+	`
+	scriptPath := filepath.Join(sandbox, "logic.nf")
+	os.WriteFile(scriptPath, []byte(script), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	if err != nil {
+		t.Fatalf("Logic test failed: %v\nOutput: %s", err, out)
+	}
+}
+
+func TestSuite_EarlyExit(t *testing.T) {
+	sandbox, teardown := setupSandbox(t)
+	defer teardown()
+
+	script := `
+		: TEST-EXIT { n }
+			n 10 EQ IF
+				EXIT
+			THEN
+			"ShouldNotReach" PRINT
+		;
+		
+		10 TEST-EXIT
+	`
+	scriptPath := filepath.Join(sandbox, "exit.nf")
+	os.WriteFile(scriptPath, []byte(script), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	if err != nil {
+		t.Fatalf("Exit test failed: %v\nOutput: %s", err, out)
+	}
+	if strings.Contains(out, "ShouldNotReach") {
+		t.Error("EXIT failed to terminate function execution")
+	}
+}
+
+func TestSuite_ErrorHandling(t *testing.T) {
+	sandbox, teardown := setupSandbox(t)
+	defer teardown()
+
+	script := `"Custom error" THROW`
+	scriptPath := filepath.Join(sandbox, "error.nf")
+	os.WriteFile(scriptPath, []byte(script), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	if !strings.Contains(out, "nforth error: Custom error") {
+		t.Errorf("Expected custom error message, got: %s", out)
+	}
+}
+
+func TestSuite_Yield(t *testing.T) {
+	sandbox, teardown := setupSandbox(t)
+	defer teardown()
+
+	script := `
+		: GET-VAL { }
+			42 INTO temp
+			temp YIELD
+		;
+		
+		GET-VAL INTO val
+		val 42 EQ IF
+			"YieldSuccess" PRINT
+		THEN
+	`
+	scriptPath := filepath.Join(sandbox, "yield.nf")
+	os.WriteFile(scriptPath, []byte(script), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	if err != nil {
+		t.Fatalf("Yield test failed: %v\nOutput: %s", err, out)
+	}
+	if !strings.Contains(out, "YieldSuccess") {
+		t.Error("YIELD failed to pass value to caller")
+	}
+}
