@@ -15,13 +15,16 @@ type OpSignature struct {
 
 // StandardWords defines the stack effects for built-in operations.
 var StandardWords = map[string]OpSignature{
-	"ADD":   {2, 1, ""},
-	"SUB":   {2, 1, ""},
-	"MUL":   {2, 1, ""},
-	"EQ":    {2, 1, ""},
-	"GT":    {2, 1, ""},
-	"FETCH": {1, 1, "HTTP-ENV"},
-	"WRITE": {2, 0, "FS-ENV"},
+	"ADD":        {2, 1, ""},
+	"SUB":        {2, 1, ""},
+	"MUL":        {2, 1, ""},
+	"EQ":         {2, 1, ""},
+	"GT":         {2, 1, ""},
+	"FETCH":      {1, 1, "HTTP-ENV"},
+	"WRITE-FILE": {2, 0, "FS-ENV"},
+	"PRINT":      {1, 0, ""},
+	"CONTAINS":   {2, 1, ""},
+	"ERROR":      {1, 0, ""},
 }
 
 type Parser struct {
@@ -92,8 +95,76 @@ func (p *Parser) parseStatement() (ast.Node, error) {
 	case lexer.KindColon:
 		return p.parseDefinition()
 	default:
-		return nil, fmt.Errorf("unexpected token: %v", p.curTok.Kind)
+		return nil, fmt.Errorf("unexpected token at line %d: %v", p.curTok.Line, p.curTok.Kind)
 	}
+}
+
+func (p *Parser) parseIfStmt(setup []ast.Expr) (ast.Node, error) {
+	ifTok := p.curTok
+	p.nextToken() // skip IF
+
+	if len(setup) == 0 {
+		return nil, fmt.Errorf("IF statement missing condition at line %d", ifTok.Line)
+	}
+
+	// The condition is the last term in the setup
+	condition := setup[len(setup)-1]
+	actualSetup := setup[:len(setup)-1]
+
+	// IF consumes the condition (bool)
+	p.depth--
+
+	thenBranch, err := p.parseBlock([]lexer.Kind{lexer.KindElse, lexer.KindThen})
+	if err != nil {
+		return nil, err
+	}
+
+	var elseBranch []ast.Statement
+	if p.curTok.Kind == lexer.KindElse {
+		p.nextToken() // skip ELSE
+		elseBranch, err = p.parseBlock([]lexer.Kind{lexer.KindThen})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if p.curTok.Kind != lexer.KindThen {
+		return nil, fmt.Errorf("expected THEN after IF block, got %v", p.curTok.Kind)
+	}
+	p.nextToken() // skip THEN
+
+	return &ast.IfStmt{
+		Token:      ifTok,
+		Setup:      actualSetup,
+		Condition:  condition,
+		ThenBranch: thenBranch,
+		ElseBranch: elseBranch,
+	}, nil
+}
+
+func (p *Parser) parseBlock(terminators []lexer.Kind) ([]ast.Statement, error) {
+	var stmts []ast.Statement
+	for !p.isTerminator(p.curTok.Kind, terminators) && p.curTok.Kind != lexer.KindEOF {
+		stmt, err := p.parseStatement()
+		if err != nil {
+			return nil, err
+		}
+		if s, ok := stmt.(ast.Statement); ok {
+			stmts = append(stmts, s)
+		} else if stmt != nil {
+			// Handle Node that is not a Statement (e.g. Definition if allowed in blocks)
+		}
+	}
+	return stmts, nil
+}
+
+func (p *Parser) isTerminator(k lexer.Kind, terminators []lexer.Kind) bool {
+	for _, t := range terminators {
+		if k == t {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Parser) parseAssignmentOrExpr() (ast.Node, error) {
@@ -105,6 +176,11 @@ func (p *Parser) parseAssignmentOrExpr() (ast.Node, error) {
 			return nil, err
 		}
 		exprs = append(exprs, expr)
+
+		if p.curTok.Kind == lexer.KindIf {
+			// The entire expression before IF is part of the setup/condition
+			return p.parseIfStmt(exprs)
+		}
 
 		if p.curTok.Kind == lexer.KindInto {
 			p.nextToken() // move to target identifier

@@ -11,6 +11,9 @@ const (
 	OP_MUL        uint8 = 0x12
 	OP_EQ         uint8 = 0x13
 	OP_GT         uint8 = 0x14
+	OP_PRINT      uint8 = 0x15
+	OP_CONTAINS   uint8 = 0x16
+	OP_ERROR      uint8 = 0x17
 	OP_JMP        uint8 = 0x20
 	OP_JMP_FALSE  uint8 = 0x21
 	OP_CALL       uint8 = 0x22

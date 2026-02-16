@@ -96,6 +96,7 @@ func (s *SecurityGate) stmtNode()        {}
 // IfStmt: IF block ELSE block THEN
 type IfStmt struct {
 	Token      lexer.Token
+	Setup      []Expr // Expressions before the condition
 	Condition  Expr
 	ThenBranch []Statement
 	ElseBranch []Statement

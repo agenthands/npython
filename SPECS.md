@@ -1,4 +1,4 @@
-# nFORTH Engine & Gemini CLI: Technical Specification
+# nForth Engine: Technical Specification
 **Version:** 1.0.0-ReleaseCandidate
 **Architecture:** Zero-Allocation Bytecode VM with Capability-Based Security
 
@@ -7,7 +7,7 @@
 ## 1. System Architecture
 The system follows a **Host-Guest Isolation Model**.
 * **Host (Go Runtime):** Manages memory, I/O, and Capability Tokens.
-* **Guest (nFORTH VM):** A pure logic engine. It has **zero** direct access to the OS.
+* **Guest (nForth VM):** A pure logic engine. It has **zero** direct access to the OS.
 * **Bridge (The Gateway):** The `OP_SYSCALL` instruction, guarded by `OP_ADDRESS`.
 
 ---
@@ -65,3 +65,11 @@ The system follows a **Host-Guest Isolation Model**.
 #### **HTTP-ENV (Network)**
 * **Constraint 1:** **Strict Allowlist.** Capability Token must specify allowed domains.
 * **Constraint 2:** **No Localhost.** Block `127.0.0.1`, `localhost`, and internal IP ranges.
+
+---
+
+## 5. Verified E2E Scenarios
+The following scenarios are verified in the `tests/main_test.go` suite:
+1. **The Happy Path (Data Pipeline)**: Fetches data from a mock server, validates it, and writes a success report.
+2. **The Red Team (Jailbreak Attempt)**: Confirms the engine blocks path traversal (`../`) attacks.
+3. **The Anti-Hallucination (Compiler)**: Confirms the compiler rejects code with floating stack values (missing `INTO`).

@@ -100,11 +100,9 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		// Check if it's a standard word
 		if sig, ok := parser.StandardWords[name]; ok {
 			if sig.RequiredScope != "" {
-				// It's a SYSCALL. In a real system, we'd have a Registry to map 
-				// name -> HostFnIdx. For now, we'll hardcode some IDs.
 				var hostIdx uint32
 				switch name {
-				case "WRITE":
+				case "WRITE-FILE":
 					hostIdx = 0
 				case "FETCH":
 					hostIdx = 1
@@ -120,6 +118,52 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				return fmt.Errorf("undefined identifier: %s", name)
 			}
 			e.emitOp(vm.OP_PUSH_L, uint32(idx))
+		}
+
+	case *ast.IfStmt:
+		// 1. Setup (e.g. "10 10")
+		for _, s := range n.Setup {
+			if err := e.emitNode(s); err != nil {
+				return err
+			}
+		}
+
+		// 2. Condition (e.g. "EQ")
+		if err := e.emitNode(n.Condition); err != nil {
+			return err
+		}
+
+		// 3. JMP_FALSE to ELSE (or END)
+		jumpFalseIdx := len(e.instructions)
+		e.emitOp(vm.OP_JMP_FALSE, 0)
+
+		// 3. THEN block
+		for _, stmt := range n.ThenBranch {
+			if err := e.emitNode(stmt); err != nil {
+				return err
+			}
+		}
+
+		if len(n.ElseBranch) > 0 {
+			// 4. JMP to END (skip ELSE)
+			jumpEndIdx := len(e.instructions)
+			e.emitOp(vm.OP_JMP, 0)
+
+			// Backpatch JMP_FALSE to start of ELSE
+			e.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
+
+			// 5. ELSE block
+			for _, stmt := range n.ElseBranch {
+				if err := e.emitNode(stmt); err != nil {
+					return err
+				}
+			}
+
+			// Backpatch JMP to END
+			e.instructions[jumpEndIdx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
+		} else {
+			// Backpatch JMP_FALSE to END
+			e.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
 		}
 
 	case *ast.SecurityGate:
@@ -185,5 +229,11 @@ func (e *Emitter) emitStandardWord(name string) {
 		e.emitOp(vm.OP_EQ, 0)
 	case "GT":
 		e.emitOp(vm.OP_GT, 0)
+	case "PRINT":
+		e.emitOp(vm.OP_PRINT, 0)
+	case "CONTAINS":
+		e.emitOp(vm.OP_CONTAINS, 0)
+	case "ERROR":
+		e.emitOp(vm.OP_ERROR, 0)
 	}
 }

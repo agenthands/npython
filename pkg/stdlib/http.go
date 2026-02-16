@@ -18,6 +18,7 @@ var (
 
 type HTTPSandbox struct {
 	AllowedDomains []string
+	AllowLocalhost bool
 }
 
 func NewHTTPSandbox(allowedDomains []string) *HTTPSandbox {
@@ -42,7 +43,7 @@ func (s *HTTPSandbox) Fetch(m *vm.Machine) error {
 	}
 
 	// CONSTRAINT 2: No Localhost
-	if isLocalhost(u.Hostname()) {
+	if !s.AllowLocalhost && isLocalhost(u.Hostname()) {
 		return ErrLocalhostBlocked
 	}
 

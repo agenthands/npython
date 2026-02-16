@@ -2,8 +2,8 @@ package vm
 
 import (
 	"errors"
-	"fmt"
 	"runtime"
+	"strings"
 	"github.com/agenthands/nforth/pkg/core/value"
 )
 
@@ -169,11 +169,105 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			sp--
 			ip++
 
+		case OP_SUB:
+			b := m.Stack[sp-1].Data
+			a := m.Stack[sp-2].Data
+			m.Stack[sp-2].Data = a - b
+			sp--
+			ip++
+
+		case OP_MUL:
+			b := m.Stack[sp-1].Data
+			a := m.Stack[sp-2].Data
+			m.Stack[sp-2].Data = a * b
+			sp--
+			ip++
+
+		case OP_EQ:
+			b := m.Stack[sp-1].Data
+			a := m.Stack[sp-2].Data
+			var res uint64
+			if a == b {
+				res = 1
+			}
+			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
+			sp--
+			ip++
+
+		case OP_GT:
+			b := m.Stack[sp-1].Data
+			a := m.Stack[sp-2].Data
+			var res uint64
+			if a > b {
+				res = 1
+			}
+			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
+			sp--
+			ip++
+
+		case OP_PRINT:
+			// ( val -- )
+			_ = m.Stack[sp-1]
+			sp--
+			ip++
+
+		case OP_CONTAINS:
+			// ( str pattern -- bool )
+			patternPacked := m.Stack[sp-1].Data
+			strPacked := m.Stack[sp-2].Data
+			
+			pattern := value.UnpackString(patternPacked, m.Arena)
+			str := value.UnpackString(strPacked, m.Arena)
+			
+			var res uint64
+			if strings.Contains(str, pattern) {
+				res = 1
+			}
+			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
+			sp--
+			ip++
+
+		case OP_ERROR:
+			// ( msg -- )
+			msgPacked := m.Stack[sp-1].Data
+			msg := value.UnpackString(msgPacked, m.Arena)
+			m.IP = ip
+			m.SP = sp
+			m.FP = fp
+			return errors.New("nforth error: " + msg)
+
+		case OP_PUSH_L:
+			m.Stack[sp] = m.Frames[fp].Locals[arg]
+			sp++
+			ip++
+
 		case OP_POP_L:
 			val := m.Stack[sp-1]
 			m.Frames[fp].Locals[arg] = val
 			sp--
 			ip++
+
+		case OP_JMP:
+			ip = int(arg)
+
+		case OP_JMP_FALSE:
+			cond := m.Stack[sp-1].Data
+			sp--
+			if cond == 0 {
+				ip = int(arg)
+			} else {
+				ip++
+			}
+
+		case OP_CALL:
+			// Save current state
+			m.Frames[fp+1].ReturnIP = ip + 1
+			fp++
+			ip = int(arg)
+
+		case OP_RET:
+			ip = m.Frames[fp].ReturnIP
+			fp--
 
 		case OP_ADDRESS:
 			// Stack: ( scope token -- )
