@@ -33,6 +33,8 @@ go test -v ./tests/main_test.go
 
 - [Usage Guide](./docs/USAGE.md): Learn the nForth syntax and built-in words.
 - [System Prompt](./docs/PROMPT.md): The master prompt for LLM code generation.
+- [Datacard](./docs/DATACARD.md): High-density reference card for LLMs.
+- [Benchmarks](./docs/BENCHMARK_RESULTS.md): nForth vs Python comparison.
 - [Embedding Guide](./docs/EMBEDDING.md): How to integrate the VM into your Go app.
 - [Extending Guide](./docs/EXTENDING.md): How to add new tools and security scopes.
 
