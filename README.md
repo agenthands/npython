@@ -32,6 +32,7 @@ go test -v ./tests/main_test.go
 ## Documentation
 
 - [Usage Guide](./docs/USAGE.md): Learn the nForth syntax and built-in words.
+- [System Prompt](./docs/PROMPT.md): The master prompt for LLM code generation.
 - [Embedding Guide](./docs/EMBEDDING.md): How to integrate the VM into your Go app.
 - [Extending Guide](./docs/EXTENDING.md): How to add new tools and security scopes.
 
