@@ -1,0 +1,53 @@
+func (p *Parser) parseExpr() (ast.Expr, error) {
+	switch p.curTok.Kind {
+	case lexer.KindNumber:
+		tok := p.curTok
+		p.nextToken()
+		p.depth++
+		return &ast.NumberLiteral{Token: tok}, nil
+	case lexer.KindString:
+		tok := p.curTok
+		p.nextToken()
+		p.depth++
+		return &ast.StringLiteral{Token: tok}, nil
+	case lexer.KindIdentifier:
+		tok := p.curTok
+		literal := p.src[tok.Offset : tok.Offset+tok.Length]
+
+		if sig, ok := isStandardWord(literal); ok {
+			p.depth -= sig.In
+			if p.depth < 0 {
+				return nil, fmt.Errorf("Stack Underflow at line %d: word '%s' requires %d arguments", tok.Line, string(literal), sig.In)
+			}
+			p.depth += sig.Out
+			
+			// YIELD is special: it satisfies the depth check by returning the result
+			if string(literal) == "YIELD" {
+				p.depth = 0
+			}
+			
+			// Scope Validation
+			if sig.RequiredScope != "" {
+				if !p.hasScope(sig.RequiredScope) {
+					return nil, fmt.Errorf("Security Violation at line %d: Word '%s' requires scope '%s'. Active scopes: %v", tok.Line, string(literal), sig.RequiredScope, p.scopes)
+				}
+			}
+		} else if sig, isFunc := p.functions[string(literal)]; isFunc {
+			p.depth -= sig.ArgCount
+			if p.depth < 0 {
+				return nil, fmt.Errorf("Stack Underflow at line %d: function '%s' requires %d arguments", tok.Line, string(literal), sig.ArgCount)
+			}
+			if sig.Returns {
+				p.depth += 1
+			}
+		} else {
+			// Assume it's a local variable push
+			p.depth++
+		}
+
+		p.nextToken()
+		return &ast.Identifier{Token: tok}, nil
+	default:
+		return nil, fmt.Errorf("unexpected expression token at line %d: %v", p.curTok.Line, p.curTok.Kind)
+	}
+}

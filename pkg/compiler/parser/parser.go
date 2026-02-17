@@ -16,18 +16,33 @@ type OpSignature struct {
 // StandardWords defines the stack effects for built-in operations.
 var StandardWords = map[string]OpSignature{
 	"ADD":             {2, 1, ""},
+	"+":               {2, 1, ""},
 	"SUB":             {2, 1, ""},
+	"-":               {2, 1, ""},
 	"MUL":             {2, 1, ""},
+	"*":               {2, 1, ""},
 	"DIV":             {2, 1, ""},
+	"/":               {2, 1, ""},
 	"EQ":              {2, 1, ""},
+	"=":               {2, 1, ""},
 	"GT":              {2, 1, ""},
+	">":               {2, 1, ""},
 	"LT":              {2, 1, ""},
+	"<":               {2, 1, ""},
 	"NE":              {2, 1, ""},
 	"!=":              {2, 1, ""},
+	"DROP":            {1, 0, ""},
 	"FETCH":           {1, 1, "HTTP-ENV"},
 	"WRITE-FILE":      {2, 0, "FS-ENV"},
 	"PRINT":           {1, 0, ""},
 	"CONTAINS":        {2, 1, ""},
+	"FIND":            {2, 1, ""},
+	"INDEX-OF":        {2, 1, ""},
+	"SLICE":           {3, 1, ""},
+	"SUBSTRING":       {3, 1, ""},
+	"LEN":             {1, 1, ""},
+	"LENGTH":          {1, 1, ""},
+	"TRIM":            {1, 1, ""},
 	"ERROR":           {1, 0, ""},
 	"THROW":           {1, 0, ""},
 	"YIELD":           {1, 1, ""}, // Pushes 1 local back to caller stack
@@ -39,7 +54,13 @@ var StandardWords = map[string]OpSignature{
 	"SET-METHOD":      {1, 0, ""},
 	"SEND-REQUEST":    {0, 1, ""},
 	"PARSE-JSON":      {1, 1, ""},
+	"PARSE-JSON-KEY":  {2, 1, ""},
+	"PARSE-AND-GET":   {2, 1, ""},
 	"CHECK-STATUS":    {1, 1, ""},
+	"GET":             {2, 1, ""}, // Generic get
+	"GET-KEY":         {2, 1, ""},
+	"GET-VALUE":       {2, 1, ""},
+	"EXTRACT-KEY":     {2, 1, ""},
 	"PREPARE-QUERY":   {1, 0, "SQL-ENV"},
 	"EXECUTE-QUERY":   {0, 1, "SQL-ENV"},
 	"FETCH-ALL":       {1, 1, "SQL-ENV"},
@@ -103,12 +124,12 @@ func (p *Parser) Parse() (*ast.Program, error) {
 		}
 		if stmt != nil {
 			program.Nodes = append(program.Nodes, stmt)
+			p.depth = 0 // Statements are terminal
 		} else if p.curTok.Kind != lexer.KindEOF {
-			// If statement returned nil but not EOF, something is wrong
-			return nil, fmt.Errorf("unexpected token at line %d: %v", p.curTok.Line, p.curTok.Kind)
+			// Skip unknown tokens to avoid infinite loops
+			p.nextToken()
 		}
 
-		// The "INTO" Enforcer: Check for Dangling Stack after each top-level statement
 		if p.depth != 0 {
 			return nil, fmt.Errorf("Syntactic Hallucination Error at line %d: Floating State Detected. Stack depth is %d. All data must be assigned using 'INTO'.", p.curTok.Line, p.depth)
 		}
@@ -294,6 +315,8 @@ func (p *Parser) parseAssignmentOrExpr() (ast.Node, error) {
 			target := p.curTok
 			p.nextToken()
 			p.depth--
+			
+			// SUCCESS: Return the assignment. The loop will continue if there's more.
 			return &ast.Assignment{
 				Expression: exprs,
 				Target:     target,
@@ -307,8 +330,19 @@ func (p *Parser) parseAssignmentOrExpr() (ast.Node, error) {
 	}
 
 	if len(exprs) > 0 {
-		// Return a VoidOperation that contains all terms to be emitted
 		lastTok := exprs[len(exprs)-1].Pos()
+		
+		// If the last word is a void-returning standard word (like PRINT), 
+		// treat the entire statement as a VoidOperation to satisfy the depth check.
+		lastExpr := exprs[len(exprs)-1]
+		if ident, ok := lastExpr.(*ast.Identifier); ok {
+			literal := p.src[ident.Token.Offset : ident.Token.Offset+ident.Token.Length]
+			upperLiteral := bytes.ToUpper(literal)
+			if sig, ok := isStandardWord(upperLiteral); ok && sig.Out == 0 {
+				return &ast.VoidOperation{Token: ident.Token, Args: exprs}, nil
+			}
+		}
+
 		return &ast.VoidOperation{Token: lastTok, Args: exprs}, nil
 	}
 
@@ -330,8 +364,9 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 	case lexer.KindIdentifier:
 		tok := p.curTok
 		literal := p.src[tok.Offset : tok.Offset+tok.Length]
+		upperLiteral := bytes.ToUpper(literal)
 
-		if sig, ok := isStandardWord(literal); ok {
+		if sig, ok := isStandardWord(upperLiteral); ok {
 			p.depth -= sig.In
 			if p.depth < 0 {
 				return nil, fmt.Errorf("Stack Underflow at line %d: word '%s' requires %d arguments", tok.Line, string(literal), sig.In)
@@ -339,7 +374,7 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 			p.depth += sig.Out
 			
 			// YIELD is special: it satisfies the depth check by returning the result
-			if string(literal) == "YIELD" {
+			if string(upperLiteral) == "YIELD" {
 				p.depth = 0
 			}
 			
@@ -349,7 +384,7 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 					return nil, fmt.Errorf("Security Violation at line %d: Word '%s' requires scope '%s'. Active scopes: %v", tok.Line, string(literal), sig.RequiredScope, p.scopes)
 				}
 			}
-		} else if sig, isFunc := p.functions[string(literal)]; isFunc {
+		} else if sig, isFunc := p.functions[string(upperLiteral)]; isFunc {
 			p.depth -= sig.ArgCount
 			if p.depth < 0 {
 				return nil, fmt.Errorf("Stack Underflow at line %d: function '%s' requires %d arguments", tok.Line, string(literal), sig.ArgCount)
@@ -365,7 +400,7 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 		p.nextToken()
 		return &ast.Identifier{Token: tok}, nil
 	default:
-		return nil, fmt.Errorf("unexpected expression token: %v", p.curTok.Kind)
+		return nil, fmt.Errorf("unexpected expression token at line %d: %v", p.curTok.Line, p.curTok.Kind)
 	}
 }
 

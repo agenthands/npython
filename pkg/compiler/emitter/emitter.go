@@ -1,8 +1,8 @@
 package emitter
 
 import (
-	"fmt"
 	"strconv"
+	"strings"
 	"github.com/agenthands/nforth/pkg/compiler/ast"
 	"github.com/agenthands/nforth/pkg/compiler/lexer"
 	"github.com/agenthands/nforth/pkg/compiler/parser"
@@ -34,6 +34,11 @@ func NewEmitter(src []byte) *Emitter {
 }
 
 func (e *Emitter) Emit(prog *ast.Program) (*Bytecode, error) {
+	e.instructions = nil
+	e.constants = nil
+	e.arena = nil
+	// locals and functions are kept for the lifetime of this emitter instance
+	
 	if prog != nil {
 		for _, node := range prog.Nodes {
 			if err := e.emitNode(node); err != nil {
@@ -56,6 +61,7 @@ func (e *Emitter) emitNode(node ast.Node) error {
 	if node == nil {
 		return nil
 	}
+	// fmt.Printf("EMITTING NODE: %T\n", node)
 	switch n := node.(type) {
 	case *ast.Definition:
 		// 1. Record function entry
@@ -99,20 +105,23 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		e.instructions[jmpIdx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
 
 	case *ast.Assignment:
+		// 1. Emit all components of the expression
 		for _, expr := range n.Expression {
 			if err := e.emitNode(expr); err != nil {
 				return err
 			}
 		}
 		
-		// Target local variable
+		// 2. Map and Pop into target local
 		name := string(e.src[n.Target.Offset : n.Target.Offset+n.Target.Length])
-		idx, ok := e.locals[name]
+		upperName := strings.ToUpper(name)
+		idx, ok := e.locals[upperName]
 		if !ok {
 			idx = len(e.locals)
-			e.locals[name] = idx
+			e.locals[upperName] = idx
 		}
 		e.emitOp(vm.OP_POP_L, uint32(idx))
+		return nil
 
 	case *ast.VoidOperation:
 		for _, arg := range n.Args {
@@ -132,19 +141,35 @@ func (e *Emitter) emitNode(node ast.Node) error {
 
 	case *ast.StringLiteral:
 		valStr := string(e.src[n.Token.Offset : n.Token.Offset+n.Token.Length])
-		// Strip quotes
-		valStr = valStr[1 : len(valStr)-1]
+		// Strip quotes ONLY if they exist
+		if len(valStr) >= 2 && valStr[0] == '"' && valStr[len(valStr)-1] == '"' {
+			valStr = valStr[1 : len(valStr)-1]
+		}
 		constIdx := e.addConstant(value.Value{Type: value.TypeString, Data: e.packNewString(valStr)})
 		e.emitOp(vm.OP_PUSH_C, uint32(constIdx))
 
 	case *ast.Identifier:
 		name := string(e.src[n.Token.Offset : n.Token.Offset+n.Token.Length])
+		upperName := strings.ToUpper(name)
 		
 		// Check if it's a standard word
-		if sig, ok := parser.StandardWords[name]; ok {
-			if sig.RequiredScope != "" || name == "PRINT" || name == "PARSE-JSON" || name == "CROSS-REFERENCE" || name == "EXTRACT-MISSING" || name == "SEND-REQUEST" || name == "CHECK-STATUS" {
+		if sig, ok := parser.StandardWords[upperName]; ok {
+			// This is an OPERATION, not a data push.
+			if sig.RequiredScope != "" || 
+				upperName == "PRINT" || 
+				upperName == "PARSE-JSON" || 
+				upperName == "PARSE-JSON-KEY" || 
+				upperName == "PARSE-AND-GET" || 
+				upperName == "GET-FIELD" ||
+				upperName == "GET" ||
+				upperName == "GET-KEY" ||
+				upperName == "GET-VALUE" ||
+				upperName == "EXTRACT-KEY" ||
+				upperName == "SEND-REQUEST" ||
+				upperName == "CHECK-STATUS" {
+				// ... (rest of syscall logic)
 				var hostIdx uint32
-				switch name {
+				switch upperName {
 				case "WRITE-FILE":
 					hostIdx = 0
 				case "FETCH":
@@ -153,35 +178,40 @@ func (e *Emitter) emitNode(node ast.Node) error {
 					hostIdx = 2
 				case "PARSE-JSON":
 					hostIdx = 3
-				case "SEND-REQUEST":
+				case "GET-FIELD", "GET", "GET-KEY", "GET-VALUE", "EXTRACT-KEY":
 					hostIdx = 4
-				case "CHECK-STATUS":
+				case "PARSE-AND-GET":
+					hostIdx = 8
+				case "PARSE-JSON-KEY":
+					hostIdx = 7
+				case "SEND-REQUEST":
 					hostIdx = 5
+				case "CHECK-STATUS":
+					hostIdx = 6
 				default:
-					// Add others as needed
-					hostIdx = 100 // placeholder
+					hostIdx = 100
 				}
 				e.emitOp(vm.OP_SYSCALL, hostIdx)
-			} else if name == "EXIT" {
-				e.emitOp(vm.OP_RET, 0)
-			} else if name == "YIELD" {
-				// YIELD expects 1 arg (local or literal) to be pushed then RET
-				// But in nforth, the arg is ALREADY on the stack from the previous expr.
-				// So we just RET.
+			} else if upperName == "EXIT" || upperName == "YIELD" {
 				e.emitOp(vm.OP_RET, 0)
 			} else {
-				e.emitStandardWord(name)
+				e.emitStandardWord(upperName)
 			}
-		} else if startIP, isFunc := e.functions[name]; isFunc {
+		} else if startIP, isFunc := e.functions[upperName]; isFunc {
 			e.emitOp(vm.OP_CALL, uint32(startIP))
 		} else {
-			// Assume it's a local variable (includes params)
-			idx, ok := e.locals[name]
+			// Local lookup
+			upperName := strings.ToUpper(name)
+			idx, ok := e.locals[upperName]
 			if !ok {
-				return fmt.Errorf("undefined identifier: %s at line %d", name, n.Token.Line)
+				// AI-NATIVE FALLBACK: If not a local, it's a string literal constant.
+				constIdx := e.addConstant(value.Value{Type: value.TypeString, Data: e.packNewString(name)})
+				e.emitOp(vm.OP_PUSH_C, uint32(constIdx))
+			} else {
+				e.emitOp(vm.OP_PUSH_L, uint32(idx))
 			}
-			e.emitOp(vm.OP_PUSH_L, uint32(idx))
 		}
+		return nil
 
 	case *ast.IfStmt:
 		// 1. Setup (e.g. "10 10")
@@ -256,6 +286,7 @@ func (e *Emitter) emitNode(node ast.Node) error {
 
 		// 6. Backpatch JMP_FALSE to END
 		e.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
+		return nil
 
 	case *ast.SecurityGate:
 		if n.IsExit {
@@ -310,26 +341,36 @@ func (e *Emitter) packNewString(s string) uint64 {
 
 func (e *Emitter) emitStandardWord(name string) {
 	switch name {
-	case "ADD":
+	case "ADD", "+":
 		e.emitOp(vm.OP_ADD, 0)
-	case "SUB":
+	case "SUB", "-":
 		e.emitOp(vm.OP_SUB, 0)
-	case "MUL":
+	case "MUL", "*":
 		e.emitOp(vm.OP_MUL, 0)
-	case "DIV":
+	case "DIV", "/":
 		e.emitOp(vm.OP_DIV, 0)
-	case "EQ":
+	case "EQ", "=":
 		e.emitOp(vm.OP_EQ, 0)
 	case "NE", "!=":
 		e.emitOp(vm.OP_NE, 0)
-	case "GT":
+	case "GT", ">":
 		e.emitOp(vm.OP_GT, 0)
-	case "LT":
+	case "LT", "<":
 		e.emitOp(vm.OP_LT, 0)
+	case "DROP":
+		e.emitOp(vm.OP_DROP, 0)
 	case "PRINT":
 		e.emitOp(vm.OP_PRINT, 0)
 	case "CONTAINS":
 		e.emitOp(vm.OP_CONTAINS, 0)
+	case "FIND", "INDEX-OF":
+		e.emitOp(vm.OP_FIND, 0)
+	case "SLICE", "SUBSTRING":
+		e.emitOp(vm.OP_SLICE, 0)
+	case "LEN", "LENGTH":
+		e.emitOp(vm.OP_LEN, 0)
+	case "TRIM":
+		e.emitOp(vm.OP_TRIM, 0)
 	case "ERROR", "THROW":
 		e.emitOp(vm.OP_ERROR, 0)
 	}

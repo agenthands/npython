@@ -2,6 +2,7 @@ package vm
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"github.com/agenthands/nforth/pkg/core/value"
@@ -146,10 +147,18 @@ func (m *Machine) Run(gasLimit int) (err error) {
 	code := m.Code
 
 	for i := 0; i < gasLimit; i++ {
+		// Mandatory state sync for syscalls/errors
+		m.IP = ip
+		m.SP = sp
+		m.FP = fp
+
 		instr := code[ip]
 		op := uint8(instr >> 24)
 		arg := instr & 0x00FFFFFF
 
+		// Sync SP back before each instruction to allow SYSCALLs to see it?
+		// No, usually we sync at SYSCALL.
+		
 		switch op {
 		case OP_HALT:
 			m.IP = ip
@@ -160,40 +169,45 @@ func (m *Machine) Run(gasLimit int) (err error) {
 		case OP_PUSH_C:
 			m.Stack[sp] = m.Constants[arg]
 			sp++
+			m.SP = sp
 			ip++
 
 		case OP_ADD:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
-			m.Stack[sp-2].Data = a + b
+			b := int64(m.Stack[sp-1].Data)
+			a := int64(m.Stack[sp-2].Data)
+			m.Stack[sp-2].Data = uint64(a + b)
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_SUB:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
-			m.Stack[sp-2].Data = a - b
+			b := int64(m.Stack[sp-1].Data)
+			a := int64(m.Stack[sp-2].Data)
+			m.Stack[sp-2].Data = uint64(a - b)
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_MUL:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
-			m.Stack[sp-2].Data = a * b
+			b := int64(m.Stack[sp-1].Data)
+			a := int64(m.Stack[sp-2].Data)
+			m.Stack[sp-2].Data = uint64(a * b)
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_DIV:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
+			b := int64(m.Stack[sp-1].Data)
+			a := int64(m.Stack[sp-2].Data)
 			if b == 0 {
 				m.IP = ip
 				m.SP = sp
 				m.FP = fp
 				return errors.New("vm: division by zero")
 			}
-			m.Stack[sp-2].Data = a / b
+			m.Stack[sp-2].Data = uint64(a / b)
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_EQ:
@@ -205,6 +219,7 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_NE:
@@ -216,34 +231,43 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_GT:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
+			b := int64(m.Stack[sp-1].Data)
+			a := int64(m.Stack[sp-2].Data)
 			var res uint64
 			if a > b {
 				res = 1
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_LT:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
+			b := int64(m.Stack[sp-1].Data)
+			a := int64(m.Stack[sp-2].Data)
 			var res uint64
 			if a < b {
 				res = 1
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
 			sp--
+			m.SP = sp
+			ip++
+
+		case OP_DROP:
+			sp--
+			m.SP = sp
 			ip++
 
 		case OP_PRINT:
 			// ( val -- )
 			_ = m.Stack[sp-1]
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_CONTAINS:
@@ -260,6 +284,96 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
 			sp--
+			m.SP = sp
+			ip++
+
+		case OP_FIND:
+			// ( str pattern -- index )
+			patternPacked := m.Stack[sp-1].Data
+			strPacked := m.Stack[sp-2].Data
+			
+			pattern := value.UnpackString(patternPacked, m.Arena)
+			str := value.UnpackString(strPacked, m.Arena)
+			
+			idx := strings.Index(str, pattern)
+			m.Stack[sp-2] = value.Value{Type: value.TypeInt, Data: uint64(int64(idx))}
+			sp--
+			m.SP = sp
+			ip++
+
+		case OP_SLICE:
+			// ( str start length -- sub )
+			length := int64(m.Stack[sp-1].Data)
+			start := int64(m.Stack[sp-2].Data)
+			strVal := m.Stack[sp-3]
+			
+			if strVal.Type != value.TypeString {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return errors.New("vm: SLICE expects string")
+			}
+
+			origOffset := uint32(strVal.Data >> 32)
+			origLength := uint32(strVal.Data)
+
+			if start < 0 || length < 0 || uint32(start+length) > origLength {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return errors.New("vm: SLICE out of bounds")
+			}
+
+			newOffset := origOffset + uint32(start)
+			newLength := uint32(length)
+			
+			m.Stack[sp-3] = value.Value{
+				Type: value.TypeString,
+				Data: value.PackString(newOffset, newLength),
+			}
+			sp -= 2
+			m.SP = sp
+			ip++
+
+		case OP_LEN:
+			// ( str -- len )
+			strVal := m.Stack[sp-1]
+			if strVal.Type != value.TypeString {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return errors.New("vm: LEN expects string")
+			}
+			length := uint32(strVal.Data)
+			m.Stack[sp-1] = value.Value{Type: value.TypeInt, Data: uint64(length)}
+			m.SP = sp
+			ip++
+
+		case OP_TRIM:
+			// ( str -- str )
+			strVal := m.Stack[sp-1]
+			if strVal.Type != value.TypeString {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return errors.New("vm: TRIM expects string")
+			}
+			str := value.UnpackString(strVal.Data, m.Arena)
+			trimmed := strings.TrimSpace(str)
+			
+			// If it's already trimmed, do nothing.
+			// But wait, strings in nforth are offset+length. 
+			// Strings.TrimSpace might change start/length.
+			// Actually, let's just push a NEW string into arena to be safe?
+			// NO, we can just find the new offset/length in the existing arena if it's a subslice.
+			// But strings.TrimSpace might return a copy if it's complex.
+			// For now, let's just append to arena.
+			
+			offset := uint32(len(m.Arena))
+			length := uint32(len(trimmed))
+			m.Arena = append(m.Arena, []byte(trimmed)...)
+			m.Stack[sp-1] = value.Value{Type: value.TypeString, Data: value.PackString(offset, length)}
+			m.SP = sp
 			ip++
 
 		case OP_ERROR:
@@ -274,12 +388,20 @@ func (m *Machine) Run(gasLimit int) (err error) {
 		case OP_PUSH_L:
 			m.Stack[sp] = m.Frames[fp].Locals[arg]
 			sp++
+			m.SP = sp
 			ip++
 
 		case OP_POP_L:
+			if sp <= 0 {
+				m.IP = ip
+				m.SP = sp
+				m.FP = fp
+				return fmt.Errorf("vm: stack underflow at POP_L index %d (IP: %d)", arg, ip)
+			}
 			val := m.Stack[sp-1]
 			m.Frames[fp].Locals[arg] = val
 			sp--
+			m.SP = sp
 			ip++
 
 		case OP_JMP:
@@ -288,6 +410,7 @@ func (m *Machine) Run(gasLimit int) (err error) {
 		case OP_JMP_FALSE:
 			cond := m.Stack[sp-1].Data
 			sp--
+			m.SP = sp
 			if cond == 0 {
 				ip = int(arg)
 			} else {
@@ -341,7 +464,7 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			}
 
 			// Sync Machine state before Syscall
-			m.IP = ip + 1
+			m.IP = ip
 			m.SP = sp
 			m.FP = fp
 
@@ -352,6 +475,7 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			// Restore state after Syscall (SP might have changed)
 			sp = m.SP
 			ip = m.IP
+			ip++ // Advance past syscall
 
 		default:
 			m.IP = ip

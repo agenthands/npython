@@ -30,7 +30,6 @@ func main() {
 
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 	gasLimit := runCmd.Int("gas", 1000000, "Maximum instruction limit")
-	argFlag := runCmd.Int64("arg", 0, "Initial argument to push to stack")
 	
 	scriptPath := os.Args[2]
 	runCmd.Parse(os.Args[3:])
@@ -64,11 +63,6 @@ func main() {
 	m.Constants = bc.Constants
 	m.Arena = bc.Arena
 
-	// Push initial argument if it's provided via flag
-	if *argFlag != 0 {
-		m.Push(value.Value{Type: value.TypeInt, Data: uint64(*argFlag)})
-	}
-
 	// Security setup
 	m.Gatekeeper = &cliGatekeeper{}
 	
@@ -78,22 +72,36 @@ func main() {
 	httpSandbox := stdlib.NewHTTPSandbox([]string{"localhost", "127.0.0.1", "api.github.com", "google.com"})
 	httpSandbox.AllowLocalhost = true
 
-	// Ensure registration order matches Emitter IDs
-	// WRITE-FILE = 0
-	// FETCH = 1
-	m.RegisterHostFunction("FS-ENV", fsSandbox.WriteFile)
-	m.RegisterHostFunction("HTTP-ENV", httpSandbox.Fetch)
+	m.HostRegistry = make([]vm.HostFunctionEntry, 10)
 	
-	// Optional: Register non-scoped words as syscalls if they need complex logic
-	m.RegisterHostFunction("", func(m *vm.Machine) error {
+	// 0: WRITE-FILE
+	m.HostRegistry[0] = vm.HostFunctionEntry{RequiredScope: "FS-ENV", Fn: fsSandbox.WriteFile}
+	// 1: FETCH
+	m.HostRegistry[1] = vm.HostFunctionEntry{RequiredScope: "HTTP-ENV", Fn: httpSandbox.Fetch}
+	// 2: PRINT
+	m.HostRegistry[2] = vm.HostFunctionEntry{Fn: func(m *vm.Machine) error {
 		val := m.Pop()
 		if val.Type == value.TypeString {
 			fmt.Println(value.UnpackString(val.Data, m.Arena))
+		} else if val.Type == value.TypeInt {
+			fmt.Println(val.Data)
+		} else if val.Type == value.TypeBool {
+			fmt.Println(val.Data != 0)
+		} else if val.Type == value.TypeMap {
+			fmt.Println(val.Opaque)
 		} else {
 			fmt.Println(val.Data)
 		}
 		return nil
-	})
+	}}
+	// 3: PARSE-JSON
+	m.HostRegistry[3] = vm.HostFunctionEntry{Fn: stdlib.ParseJSON}
+	// 4: GET-FIELD
+	m.HostRegistry[4] = vm.HostFunctionEntry{Fn: stdlib.GetField}
+	// 7: PARSE-JSON-KEY
+	m.HostRegistry[7] = vm.HostFunctionEntry{Fn: stdlib.ParseJSONKey}
+	// 8: PARSE-AND-GET
+	m.HostRegistry[8] = vm.HostFunctionEntry{Fn: stdlib.ParseJSONKey}
 
 	// 4. Run
 	err = m.Run(*gasLimit)

@@ -14,8 +14,13 @@ const (
 	OP_NE         uint8 = 0x1b
 	OP_GT         uint8 = 0x14
 	OP_LT         uint8 = 0x18
+	OP_DROP       uint8 = 0x1c
 	OP_PRINT      uint8 = 0x15
 	OP_CONTAINS   uint8 = 0x16
+	OP_FIND       uint8 = 0x1d
+	OP_SLICE      uint8 = 0x1e
+	OP_LEN        uint8 = 0x1f
+	OP_TRIM       uint8 = 0x24
 	OP_ERROR      uint8 = 0x17
 	OP_JMP        uint8 = 0x20
 	OP_JMP_FALSE  uint8 = 0x21

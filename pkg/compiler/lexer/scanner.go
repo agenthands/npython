@@ -135,8 +135,17 @@ func (s *Scanner) scanGateSugar() Token {
 func (s *Scanner) scanString() Token {
 	start := s.cursor
 	s.cursor++ // Skip opening '"'
-	for s.cursor < len(s.source) && s.source[s.cursor] != '"' {
-		if s.source[s.cursor] == '\n' {
+	
+	for s.cursor < len(s.source) {
+		ch := s.source[s.cursor]
+		if ch == '\\' && s.cursor+1 < len(s.source) {
+			s.cursor += 2 // skip escape sequence
+			continue
+		}
+		if ch == '"' {
+			break
+		}
+		if ch == '\n' {
 			s.line++
 		}
 		s.cursor++
