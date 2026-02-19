@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/agenthands/nforth/pkg/core/value"
-	"github.com/agenthands/nforth/pkg/vm"
+	"github.com/agenthands/npython/pkg/core/value"
+	"github.com/agenthands/npython/pkg/vm"
 )
 
 var (

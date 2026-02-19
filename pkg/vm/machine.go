@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"github.com/agenthands/nforth/pkg/core/value"
+	"github.com/agenthands/npython/pkg/core/value"
 )
 
 var (
@@ -211,11 +211,19 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			ip++
 
 		case OP_EQ:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
+			bVal := m.Stack[sp-1]
+			aVal := m.Stack[sp-2]
 			var res uint64
-			if a == b {
-				res = 1
+			if aVal.Type == value.TypeString && bVal.Type == value.TypeString {
+				aStr := value.UnpackString(aVal.Data, m.Arena)
+				bStr := value.UnpackString(bVal.Data, m.Arena)
+				if aStr == bStr {
+					res = 1
+				}
+			} else {
+				if aVal.Data == bVal.Data {
+					res = 1
+				}
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
 			sp--
@@ -223,11 +231,19 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			ip++
 
 		case OP_NE:
-			b := m.Stack[sp-1].Data
-			a := m.Stack[sp-2].Data
+			bVal := m.Stack[sp-1]
+			aVal := m.Stack[sp-2]
 			var res uint64
-			if a != b {
-				res = 1
+			if aVal.Type == value.TypeString && bVal.Type == value.TypeString {
+				aStr := value.UnpackString(aVal.Data, m.Arena)
+				bStr := value.UnpackString(bVal.Data, m.Arena)
+				if aStr != bStr {
+					res = 1
+				}
+			} else {
+				if aVal.Data != bVal.Data {
+					res = 1
+				}
 			}
 			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
 			sp--
@@ -362,7 +378,7 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			trimmed := strings.TrimSpace(str)
 			
 			// If it's already trimmed, do nothing.
-			// But wait, strings in nforth are offset+length. 
+			// But wait, strings in npython are offset+length. 
 			// Strings.TrimSpace might change start/length.
 			// Actually, let's just push a NEW string into arena to be safe?
 			// NO, we can just find the new offset/length in the existing arena if it's a subslice.
@@ -383,7 +399,7 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			m.IP = ip
 			m.SP = sp
 			m.FP = fp
-			return errors.New("nforth error: " + msg)
+			return errors.New("npython error: " + msg)
 
 		case OP_PUSH_L:
 			m.Stack[sp] = m.Frames[fp].Locals[arg]

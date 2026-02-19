@@ -4,7 +4,7 @@ import (
 	"bytes"
 )
 
-// Scanner performs lexical analysis on nFORTH source.
+// Scanner performs lexical analysis on nPython source.
 type Scanner struct {
 	source []byte
 	cursor int

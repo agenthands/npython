@@ -1,6 +1,6 @@
-# Extending nForth
+# Extending nPython
 
-You can extend nForth by adding new host functions (syscalls) and custom security scopes.
+You can extend nPython by adding new host functions (syscalls) and custom security scopes.
 
 ## Adding a New Host Function
 
@@ -31,7 +31,7 @@ m.RegisterHostFunction("MY-SCOPE", MyCustomTool)
 ```
 
 ### 3. Update the Compiler
-To make the new word available in nForth source code, you must add it to the `parser.StandardWords` map.
+To make the new word available in nPython source code, you must add it to the `parser.StandardWords` map.
 
 ```go
 // pkg/compiler/parser/parser.go

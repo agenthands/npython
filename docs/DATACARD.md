@@ -1,53 +1,50 @@
-# nForth Language Datacard (v1.0)
-Output ONLY valid nForth code.
+# nPython Language Datacard (v1.0)
+Output ONLY valid nPython (Python subset) code.
 
-### **Mandatory Syntax Pillars**
-1. **Word Definition**: `: NAME { arg1 arg2 } ... ;`
-2. **Explicit State (INTO)**: Every value producer MUST be followed by `INTO <var>`.
-3. **Capability Gating**: `ADDRESS <ENV> <TOKEN> ... <EXIT>`
-4. **Postfix Logic**: `10 20 ADD INTO sum`
+### **Syntax Overview**
+- **Variable Assignment**: `x = 10`
+- **Control Flow**: `if/else`, `while`
+- **Function Definition**: `def calculate(a, b): return a + b`
+- **Security Gating**: `with scope("HTTP-ENV", token): fetch(url)`
+
+### **Built-in Functions**
+- `print(val)` (Print to stdout)
+- `fetch(url)` (HTTP GET - Requires `HTTP-ENV`)
+- `write_file(content, path)` (FS Write - Requires `FS-ENV`)
+- `read_file(path)` (FS Read - Requires `FS-ENV`)
+- `parse_json(string)` (Parse JSON into a dictionary)
+- `format_string(format, val)` (Simple string formatting)
+- `is_empty(val)` (Check if a value is empty)
 
 ### **The Banned List**
-- **NO Stack Juggling**: `DUP`, `SWAP`, `ROT`, `OVER`, `DROP` are forbidden.
-- **NO Ambient Authority**: Never call `FETCH` or `WRITE` without an `ADDRESS` block.
-- **NO Implicit Returns**: Use `YIELD` to explicitly return a value from a function.
-
-### **Common Operations**
-- `ADD`, `SUB`, `MUL`, `DIV` (Arithmetic)
-- `EQ`, `NE`, `GT`, `LT` (Logic)
-- `PRINT`, `THROW` (I/O & Errors)
-- `CONTAINS` (String search)
-- `FETCH` (HTTP GET - Requires `HTTP-ENV`)
-- `WRITE-FILE` (FS Write - Requires `FS-ENV`)
+- **NO `import`**: All tools are built-in or provided via security scopes.
+- **NO `try/except`**: All errors are fatal and handled by the VM's security layer.
+- **NO Ambient Authority**: Never call `fetch` or `write_file` without a `with scope` block.
 
 ### **Code Examples**
 
-**1. Data Extraction & Storage:**
-```forth
-: SAVE-DATA { url path token }
-  ADDRESS HTTP-ENV token
-    url FETCH INTO raw
-  <EXIT>
-  ADDRESS FS-ENV token
-    raw path WRITE-FILE
-  <EXIT>
-;
+**1. Secure Data Fetching:**
+```python
+def save_data(url, path, token):
+    with scope("HTTP-ENV", token):
+        raw = fetch(url)
+    
+    with scope("FS-ENV", token):
+        write_file(raw, path)
 ```
 
 **2. Conditional Logic:**
-```forth
-: CHECK-VALUE { val }
-  val 100 GT IF
-    "High" PRINT
-  ELSE
-    "Low" PRINT
-  THEN
-;
+```python
+def check_value(val):
+    if val > 100:
+        print("High")
+    else:
+        print("Low")
 ```
 
-### **Token Efficiency vs Python**
-| Metric | nForth | Python |
+### **Token Efficiency vs Standard Python**
+| Metric | nPython | Standard Python |
 | :--- | :--- | :--- |
-| **Logic** | Postfix (High Density) | Infix (Verbose) |
-| **Structure** | Space-delimited | Indentation + Brackets |
+| **Logic** | Restricted Subset | Global Language |
+| **Structure** | Sterile & Sandboxed | Extensive OS Access |
 | **Boilerplate** | Zero (Sandboxed) | Extensive (Imports/Try-Except) |

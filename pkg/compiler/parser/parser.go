@@ -3,8 +3,8 @@ package parser
 import (
 	"bytes"
 	"fmt"
-	"github.com/agenthands/nforth/pkg/compiler/ast"
-	"github.com/agenthands/nforth/pkg/compiler/lexer"
+	"github.com/agenthands/npython/pkg/compiler/ast"
+	"github.com/agenthands/npython/pkg/compiler/lexer"
 )
 
 // OpSignature defines the stack effect and security requirements of a word.
@@ -124,7 +124,6 @@ func (p *Parser) Parse() (*ast.Program, error) {
 		}
 		if stmt != nil {
 			program.Nodes = append(program.Nodes, stmt)
-			p.depth = 0 // Statements are terminal
 		} else if p.curTok.Kind != lexer.KindEOF {
 			// Skip unknown tokens to avoid infinite loops
 			p.nextToken()

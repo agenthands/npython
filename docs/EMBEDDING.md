@@ -1,6 +1,6 @@
-# Embedding nForth in Go
+# Embedding nPython in Go
 
-The nForth Engine is designed to be easily embedded as a secure logic layer within any Go application.
+The nPython Engine is designed to be easily embedded as a secure logic layer within any Go application.
 
 ## Integration Steps
 
@@ -9,9 +9,9 @@ The `compiler` package takes raw source and produces a `Bytecode` struct contain
 
 ```go
 import (
-    "github.com/agenthands/nforth/pkg/compiler/lexer"
-    "github.com/agenthands/nforth/pkg/compiler/parser"
-    "github.com/agenthands/nforth/pkg/compiler/emitter"
+    "github.com/agenthands/npython/pkg/compiler/lexer"
+    "github.com/agenthands/npython/pkg/compiler/parser"
+    "github.com/agenthands/npython/pkg/compiler/emitter"
 )
 
 src := []byte(`10 20 ADD INTO result`)
@@ -27,7 +27,7 @@ bc, _ := e.Emit(prog)
 Create a `vm.Machine` and load the compiled bytecode.
 
 ```go
-import "github.com/agenthands/nforth/pkg/vm"
+import "github.com/agenthands/npython/pkg/vm"
 
 m := &vm.Machine{}
 m.Code = bc.Instructions

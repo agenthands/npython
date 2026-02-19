@@ -2,7 +2,7 @@ package lexer_test
 
 import (
 	"testing"
-	"github.com/agenthands/nforth/pkg/compiler/lexer"
+	"github.com/agenthands/npython/pkg/compiler/lexer"
 )
 
 func TestScannerZeroAlloc(t *testing.T) {

@@ -2,7 +2,7 @@ package value_test
 
 import (
 	"testing"
-	"github.com/agenthands/nforth/pkg/core/value"
+	"github.com/agenthands/npython/pkg/core/value"
 )
 
 func TestValueCreation(t *testing.T) {

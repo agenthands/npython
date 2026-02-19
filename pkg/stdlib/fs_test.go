@@ -4,13 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"github.com/agenthands/nforth/pkg/stdlib"
-	"github.com/agenthands/nforth/pkg/vm"
-	"github.com/agenthands/nforth/pkg/core/value"
+	"github.com/agenthands/npython/pkg/stdlib"
+	"github.com/agenthands/npython/pkg/vm"
+	"github.com/agenthands/npython/pkg/core/value"
 )
 
 func TestFSSandbox(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "nforth-fs-test")
+	tempDir, err := os.MkdirTemp("", "npython-fs-test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestFSSandbox(t *testing.T) {
 	
 	// Setup Arena for Write
 	pathStr := "test.txt"
-	contentStr := "hello nforth"
+	contentStr := "hello npython"
 	
 	m.Arena = append(m.Arena, []byte(contentStr)...)
 	contentData := value.PackString(0, uint32(len(contentStr)))
@@ -65,7 +65,7 @@ func TestFSSandbox(t *testing.T) {
 }
 
 func TestFSSandboxJailing(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "nforth-fs-jail-test")
+	tempDir, _ := os.MkdirTemp("", "npython-fs-jail-test")
 	defer os.RemoveAll(tempDir)
 	
 	sandbox := stdlib.NewFSSandbox(tempDir, 1024)

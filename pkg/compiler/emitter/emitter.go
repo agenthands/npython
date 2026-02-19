@@ -3,18 +3,12 @@ package emitter
 import (
 	"strconv"
 	"strings"
-	"github.com/agenthands/nforth/pkg/compiler/ast"
-	"github.com/agenthands/nforth/pkg/compiler/lexer"
-	"github.com/agenthands/nforth/pkg/compiler/parser"
-	"github.com/agenthands/nforth/pkg/core/value"
-	"github.com/agenthands/nforth/pkg/vm"
+	"github.com/agenthands/npython/pkg/compiler/ast"
+	"github.com/agenthands/npython/pkg/compiler/lexer"
+	"github.com/agenthands/npython/pkg/compiler/parser"
+	"github.com/agenthands/npython/pkg/core/value"
+	"github.com/agenthands/npython/pkg/vm"
 )
-
-type Bytecode struct {
-	Instructions []uint32
-	Constants    []value.Value
-	Arena        []byte
-}
 
 type Emitter struct {
 	instructions []uint32
@@ -33,7 +27,7 @@ func NewEmitter(src []byte) *Emitter {
 	}
 }
 
-func (e *Emitter) Emit(prog *ast.Program) (*Bytecode, error) {
+func (e *Emitter) Emit(prog *ast.Program) (*vm.Bytecode, error) {
 	e.instructions = nil
 	e.constants = nil
 	e.arena = nil
@@ -50,7 +44,7 @@ func (e *Emitter) Emit(prog *ast.Program) (*Bytecode, error) {
 	// Always end with HALT if not already present
 	e.emitOp(vm.OP_HALT, 0)
 
-	return &Bytecode{
+	return &vm.Bytecode{
 		Instructions: e.instructions,
 		Constants:    e.constants,
 		Arena:        e.arena,
@@ -80,7 +74,7 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		// Map parameters to locals 0, 1, 2...
 		for i, argTok := range n.Args {
 			argName := string(e.src[argTok.Offset : argTok.Offset+argTok.Length])
-			e.locals[argName] = i
+			e.locals[strings.ToUpper(argName)] = i
 		}
 
 		// Pop parameters from the stack into their locals
@@ -166,7 +160,9 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				upperName == "GET-VALUE" ||
 				upperName == "EXTRACT-KEY" ||
 				upperName == "SEND-REQUEST" ||
-				upperName == "CHECK-STATUS" {
+				upperName == "CHECK-STATUS" ||
+				upperName == "FORMAT-STRING" ||
+				upperName == "IS-EMPTY" {
 				// ... (rest of syscall logic)
 				var hostIdx uint32
 				switch upperName {
@@ -180,14 +176,24 @@ func (e *Emitter) emitNode(node ast.Node) error {
 					hostIdx = 3
 				case "GET-FIELD", "GET", "GET-KEY", "GET-VALUE", "EXTRACT-KEY":
 					hostIdx = 4
-				case "PARSE-AND-GET":
-					hostIdx = 8
-				case "PARSE-JSON-KEY":
-					hostIdx = 7
 				case "SEND-REQUEST":
 					hostIdx = 5
 				case "CHECK-STATUS":
 					hostIdx = 6
+				case "WITH-CLIENT":
+					hostIdx = 11
+				case "SET-URL":
+					hostIdx = 12
+				case "SET-METHOD":
+					hostIdx = 13
+				case "PARSE-JSON-KEY":
+					hostIdx = 7
+				case "PARSE-AND-GET":
+					hostIdx = 8
+				case "FORMAT-STRING":
+					hostIdx = 9
+				case "IS-EMPTY":
+					hostIdx = 10
 				default:
 					hostIdx = 100
 				}

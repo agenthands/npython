@@ -57,7 +57,7 @@ func main() {
 	totalSuccess := 0
 	totalCases := 0
 
-	fmt.Println("\nNFORTH COMPREHENSIVE BENCHMARK")
+	fmt.Println("\nNPYTHON COMPREHENSIVE BENCHMARK")
 	fmt.Println("-------------------------------------------------------")
 
 	for _, suiteFile := range suites {
@@ -88,7 +88,7 @@ func main() {
 
 STRICT RULES:
 1. Output TOP-LEVEL code only. DO NOT wrap in a function.
-2. If the task requires processing the data provided below, follow the nForth paradigm:
+2. If the task requires processing the data provided below, follow the nPython paradigm:
    - Define data: "<DATA>" INTO input-data
    - Extract if JSON: input-data PARSE-JSON INTO data-map, then data-map "key" EXTRACT-KEY INTO result
    - Print result: result PRINT
@@ -145,8 +145,11 @@ func extractCode(resp *genai.GenerateContentResponse) string {
 		text = strings.Split(text, "</thinking>")[1]
 	}
 
-	if strings.Contains(text, "```forth") {
-		return strings.Split(strings.Split(text, "```forth")[1], "```")[0]
+	if strings.Contains(text, "```python") {
+		return strings.Split(strings.Split(text, "```python")[1], "```")[0]
+	}
+	if strings.Contains(text, "```npython") {
+		return strings.Split(strings.Split(text, "```npython")[1], "```")[0]
 	}
 	if strings.Contains(text, "```") {
 		return strings.Split(strings.Split(text, "```")[1], "```")[0]
@@ -159,7 +162,7 @@ func runAndVerify(code, inputData string, bc BenchmarkCase, basePath string) (bo
 	os.WriteFile(tmpFile, []byte(code), 0644)
 	defer os.Remove(tmpFile)
 
-	cmd := exec.Command("./nforth", "run", tmpFile)
+	cmd := exec.Command("./npython", "run", tmpFile)
 	output, err := cmd.CombinedOutput()
 	outputStr := string(output)
 

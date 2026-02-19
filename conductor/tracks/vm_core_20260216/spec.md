@@ -1,7 +1,7 @@
 # Specification: Phase 1 - VM Core Implementation
 
 ## Overview
-Implement the foundational data structures and the high-performance execution loop for the nFORTH Virtual Machine. This phase establishes the "Zero-Allocation" hot path and the "Panic-based" safety model.
+Implement the foundational data structures and the high-performance execution loop for the nPython Virtual Machine. This phase establishes the "Zero-Allocation" hot path and the "Panic-based" safety model.
 
 ## Functional Requirements
 - **Data Representation**: Implement `value.Value` as a 16-byte tagged union (Type + 64-bit Data).

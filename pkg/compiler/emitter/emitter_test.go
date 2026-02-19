@@ -2,10 +2,10 @@ package emitter_test
 
 import (
 	"testing"
-	"github.com/agenthands/nforth/pkg/compiler/emitter"
-	"github.com/agenthands/nforth/pkg/compiler/lexer"
-	"github.com/agenthands/nforth/pkg/compiler/parser"
-	"github.com/agenthands/nforth/pkg/vm"
+	"github.com/agenthands/npython/pkg/compiler/emitter"
+	"github.com/agenthands/npython/pkg/compiler/lexer"
+	"github.com/agenthands/npython/pkg/compiler/parser"
+	"github.com/agenthands/npython/pkg/vm"
 )
 
 func TestEmitterBasic(t *testing.T) {

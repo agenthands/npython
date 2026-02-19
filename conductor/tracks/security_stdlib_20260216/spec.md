@@ -1,7 +1,7 @@
 # Specification: Phase 3 - Security & The Standard Library
 
 ## Overview
-Implement the security gateway and sandboxed standard libraries for the nFORTH engine. This phase enables safe interaction with the host system through capability-gated syscalls.
+Implement the security gateway and sandboxed standard libraries for the nPython engine. This phase enables safe interaction with the host system through capability-gated syscalls.
 
 ## Functional Requirements
 - **OP_ADDRESS & OP_EXIT_ADDR VM Logic**: 

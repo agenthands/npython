@@ -2,8 +2,8 @@ package parser_test
 
 import (
 	"testing"
-	"github.com/agenthands/nforth/pkg/compiler/lexer"
-	"github.com/agenthands/nforth/pkg/compiler/parser"
+	"github.com/agenthands/npython/pkg/compiler/lexer"
+	"github.com/agenthands/npython/pkg/compiler/parser"
 )
 
 func TestDanglingStackEnforcer(t *testing.T) {
@@ -60,7 +60,7 @@ func TestScopeValidation(t *testing.T) {
 		},
 		{
 			name:    "Valid Nested Access: FETCH and WRITE",
-			src:     "ADDRESS FS-ENV token1 ADDRESS HTTP-ENV token2 \"google.com\" FETCH INTO html \"file.txt\" html WRITE",
+			src:     "ADDRESS FS-ENV token1 ADDRESS HTTP-ENV token2 \"google.com\" FETCH INTO html \"file.txt\" html WRITE-FILE",
 			wantErr: false,
 		},
 	}

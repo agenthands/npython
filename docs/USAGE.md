@@ -1,109 +1,76 @@
-# nForth Usage Guide
+# nPython Usage Guide
 
-nForth is a concatenative, stack-based language optimized for LLM code generation. It prioritizes **Explicit State** and **Zero Ambient Authority**.
+nPython is a secure, high-performance execution environment for AI Agents, allowing them to run a subset of Python on a strictly sandboxed, zero-allocation Virtual Machine.
 
 ## 🧠 AI-Native Philosophy
 
-**The Problem:** Traditional stack languages (Forth) require mental simulation of the stack state (e.g., `DUP SWAP DROP`). For Large Language Models, this hidden state acts as a "cognitive load," leading to "stack drift" hallucinations where the model loses track of variables.
+**The Problem:** Traditional Python runtimes grant "ambient authority" to scripts, meaning they can access the filesystem, network, and process table by default. For AI Agents, this is a massive security risk (The Confused Deputy Attack).
 
-**The nForth Solution:**
-We enforce a strict **Named State** paradigm. The LLM interacts *purely* with named variables.
+**The nPython Solution:**
+We enforce a strict **Capability-Based Security** model. Scripts have ZERO authority by default. They must explicitly request access to tools using security scopes.
 
-> **Rule:** No `PUSH`, `POP`, `DUP`, or `SWAP`.
+## 🛡️ Secure Execution
 
-The LLM is completely shielded from the underlying stack reality.
+Under the hood, nPython uses a Go-based Virtual Machine. Python source code is compiled into secure bytecode and executed in a sterile environment.
 
-## 🛡️ Compiler-Level Enforcement
+If a script attempts to:
+1. Access the network without an active `HTTP-ENV` scope.
+2. Write to a file without an active `FS-ENV` scope.
+3. Access files outside the workspace root (Path Traversal).
 
-Under the hood, the Go Virtual Machine still executes blazing-fast stack bytecodes. However, the `pkg/compiler` runs a strict static analysis pass before execution.
-
-If the LLM hallucinates and attempts to:
-1. Leave a value on the stack without an accompanying `INTO` statement.
-2. Use a legacy stack word (which doesn't exist in the dictionary).
-
-The compiler intercepts it and throws a `SyntacticHallucinationError`. The code is rejected before it ever runs, ensuring the agent's state remains perfectly synchronized and secure.
+The VM immediately halts execution and returns a security violation error.
 
 ## Core Concepts
 
-### 1. The `INTO` Rule (State Grounding)
-Every data transformation must explicitly name its output state.
-
-**Invalid (Hallucination):**
-```forth
-10 20 ADD  \ Error: Syntactic Hallucination. Stack not empty.
-```
-
-**Valid (Grounded):**
-```forth
-10 20 ADD INTO sum
+### 1. Variables and Assignment
+Standard Python variable assignment is supported.
+```python
+x = 10
+y = 20
+total = x + y
 ```
 
 ### 2. Control Flow
-nForth uses structured control flow to prevent chaotic jumps.
+Standard `if/else` and `while` loops are supported.
 
-#### IF/ELSE/THEN
-The condition must be evaluated immediately before the `IF`.
-```forth
-i 10 LT IF
-    "Small" PRINT
-ELSE
-    "Large" PRINT
-THEN
-```
+```python
+if score > 90:
+    grade = "A"
+else:
+    grade = "B"
 
-#### BEGIN/WHILE/REPEAT
-A standard loop that checks a condition at the start of every iteration.
-```forth
-0 INTO i
-BEGIN
-    i 10 LT
-WHILE
-    i PRINT
-    i 1 ADD INTO i
-REPEAT
+i = 0
+while i < 10:
+    print(i)
+    i = i + 1
 ```
 
 ### 3. Function Definitions
-Functions are defined using the `:` word. Arguments are named in `{ }` and are automatically popped into local variables at the start of the function.
-
-#### Void Functions
-If a function does not use `YIELD`, it returns no value to the caller.
-```forth
-: LOG-RESULT { res }
-  res PRINT
-;
+Functions are defined using `def`.
+```python
+def calculate_tax(price, rate):
+    return price * rate / 100
 ```
 
-#### Fruitful Functions (Returning Values)
-Use `YIELD` to pass a value back to the caller's stack.
-```forth
-: SQUARE { n }
-  n n MUL INTO result
-  result YIELD
-;
+### 4. Security Scopes (`with scope`)
+Privileged operations are only accessible within a `with scope(name, token):` block.
 
-5 SQUARE INTO five_sq
+```python
+with scope("HTTP-ENV", http_token):
+    html = fetch("https://google.com")
+
+with scope("FS-ENV", fs_token):
+    write_file(html, "output.html")
 ```
 
-### 4. Security Gates (`ADDRESS`)
-Privileged operations (like `FETCH` or `WRITE-FILE`) are only accessible within an `ADDRESS` block.
+## Built-in Functions
 
-```forth
-ADDRESS FS-ENV "my-token"
-    "Hello" "log.txt" WRITE-FILE
-<EXIT>
-```
-
-## Built-in Words
-
-| Word | Stack | Description |
-| :--- | :--- | :--- |
-| `ADD`, `SUB`, `MUL`, `DIV` | `( a b -- res )` | Arithmetic |
-| `EQ`, `NE`, `GT`, `LT` | `( a b -- bool )` | Comparison (`!=` is alias for `NE`) |
-| `PRINT` | `( val -- )` | Print to stdout |
-| `FETCH` | `( url -- data )` | HTTP GET (Requires `HTTP-ENV`) |
-| `WRITE-FILE` | `( data path -- )` | FS Write (Requires `FS-ENV`) |
-| `CONTAINS` | `( str pat -- bool )` | String search |
-| `YIELD` | `( val -- )` | Explicitly return a value from a function |
-| `EXIT` | `( -- )` | Early exit from function or block |
-| `THROW` | `( msg -- )` | Raise a runtime error |
+| Function | Description |
+| :--- | :--- |
+| `print(val)` | Print to stdout |
+| `fetch(url)` | HTTP GET (Requires `HTTP-ENV`) |
+| `write_file(content, path)` | FS Write (Requires `FS-ENV`) |
+| `read_file(path)` | FS Read (Requires `FS-ENV`) |
+| `parse_json(string)` | Parse JSON into a dictionary |
+| `format_string(format, val)` | Simple string formatting (`%s` replacement) |
+| `is_empty(val)` | Check if a value is empty (string, map, void) |

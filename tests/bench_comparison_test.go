@@ -1,4 +1,4 @@
-package tests
+package main_test
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 type BenchmarkCase struct {
 	Name        string
 	Task        string
-	NForthCode  string
+	NPythonCode string
 	PythonCode  string
 }
 
@@ -35,7 +35,7 @@ func TestBenchmark_TokenEfficiency(t *testing.T) {
 		{
 			Name: "Arithmetic & Tax",
 			Task: "Calculate total price given base price and tax rate.",
-			NForthCode: `: CALC-TOTAL { price tax }
+			NPythonCode: `: CALC-TOTAL { price tax }
   price tax MUL 100 DIV INTO amt
   price amt ADD INTO total
   total YIELD
@@ -47,7 +47,7 @@ func TestBenchmark_TokenEfficiency(t *testing.T) {
 		{
 			Name: "Secure HTTP Fetch",
 			Task: "Open HTTP gate, fetch URL, check for pattern, and return boolean.",
-			NForthCode: `: CHECK-URL { url token }
+			NPythonCode: `: CHECK-URL { url token }
   ADDRESS HTTP-ENV token
     url FETCH INTO html
   <EXIT>
@@ -65,7 +65,7 @@ def check_url(url):
 		{
 			Name: "Secure File Write",
 			Task: "Open FS gate, write data to path, and exit.",
-			NForthCode: `: SAVE { data path token }
+			NPythonCode: `: SAVE { data path token }
   ADDRESS FS-ENV token
     data path WRITE-FILE
   <EXIT>
@@ -78,13 +78,13 @@ def save(data, path):
 		},
 	}
 
-	fmt.Println("\nNFORTH VS PYTHON: TOKEN EFFICIENCY")
+	fmt.Println("\nNPYTHON VS PYTHON: TOKEN EFFICIENCY")
 	fmt.Println("-------------------------------------------------------")
-	fmt.Printf("%-20s %-10s %-10s %-10s\n", "Case", "nForth", "Python", "Saving %")
+	fmt.Printf("%-20s %-10s %-10s %-10s\n", "Case", "nPython", "Python", "Saving %")
 	fmt.Println("-------------------------------------------------------")
 
 	for _, c := range cases {
-		nfTokens := countTokens(c.NForthCode)
+		nfTokens := countTokens(c.NPythonCode)
 		pyTokens := countTokens(c.PythonCode)
 		saving := 100.0 - (float64(nfTokens) / float64(pyTokens) * 100.0)
 		

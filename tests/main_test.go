@@ -17,7 +17,7 @@ import (
 
 // Sandbox creates a temporary workspace and returns its path and cleanup function
 func setupSandbox(t *testing.T) (string, func()) {
-	dir, err := os.MkdirTemp("", "nforth-test-*")
+	dir, err := os.MkdirTemp("", "npython-test-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,11 +36,11 @@ func setupMockInternet() *httptest.Server {
 	}))
 }
 
-// RunNForth executes the nForth binary against a script
-func runNForth(ctx context.Context, scriptPath string, workDir string, args []string) (string, error) {
-	absNForth, _ := filepath.Abs("../nforth")
+// RunNPython executes the nPython binary against a script
+func runNPython(ctx context.Context, scriptPath string, workDir string, args []string) (string, error) {
+	absNPython, _ := filepath.Abs("../npython")
 	fullArgs := append([]string{"run", scriptPath}, args...)
-	cmd := exec.CommandContext(ctx, absNForth, fullArgs...)
+	cmd := exec.CommandContext(ctx, absNPython, fullArgs...)
 	cmd.Dir = workDir
 	
 	output, err := cmd.CombinedOutput()
@@ -79,7 +79,7 @@ func TestSuite_HappyPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 
 	// 4. Assertions
 	if err != nil {
@@ -112,7 +112,7 @@ func TestSuite_Security_Jailbreak(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 
 	// Assertion: MUST FAIL
 	if err == nil {
@@ -139,7 +139,7 @@ func TestSuite_Compiler_AntiHallucination(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 
 	// Assertion: MUST FAIL COMPILATION
 	if err == nil {
@@ -168,7 +168,7 @@ func TestSuite_FunctionDefinitions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 
 	if err != nil {
 		t.Fatalf("Agent crashed: %v\nOutput: %s", err, out)
@@ -198,7 +198,7 @@ func TestSuite_Performance_ZeroAlloc(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -233,7 +233,7 @@ func TestSuite_Arithmetic_Logic(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 	if err != nil {
 		t.Fatalf("Logic test failed: %v\nOutput: %s", err, out)
 	}
@@ -259,7 +259,7 @@ func TestSuite_EarlyExit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 	if err != nil {
 		t.Fatalf("Exit test failed: %v\nOutput: %s", err, out)
 	}
@@ -279,11 +279,11 @@ func TestSuite_ErrorHandling(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
-	if !strings.Contains(out, "nforth error: Custom error") {
+	if !strings.Contains(out, "npython error: Custom error") {
 		t.Errorf("Expected custom error message, got: %s", out)
 	}
 }
@@ -309,11 +309,46 @@ func TestSuite_Yield(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	out, err := runNForth(ctx, scriptPath, sandbox, nil)
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 	if err != nil {
 		t.Fatalf("Yield test failed: %v\nOutput: %s", err, out)
 	}
 	if !strings.Contains(out, "YieldSuccess") {
 		t.Error("YIELD failed to pass value to caller")
+	}
+}
+
+func TestSuite_StringOperations(t *testing.T) {
+	sandbox, teardown := setupSandbox(t)
+	defer teardown()
+
+	script := `
+		"Hello %s" "nPython" FORMAT-STRING INTO res
+		res "Hello nPython" EQ IF
+			"FormatOK" PRINT
+		THEN
+		
+		"" IS-EMPTY IF
+			"EmptyOK" PRINT
+		THEN
+		
+		"not empty" IS-EMPTY IF
+			"Error" PRINT
+		ELSE
+			"NotEmptyOK" PRINT
+		THEN
+	`
+	scriptPath := filepath.Join(sandbox, "string_ops.nf")
+	os.WriteFile(scriptPath, []byte(script), 0644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	out, err := runNPython(ctx, scriptPath, sandbox, nil)
+	if err != nil {
+		t.Fatalf("String ops test failed: %v\nOutput: %s", err, out)
+	}
+	if !strings.Contains(out, "FormatOK") || !strings.Contains(out, "EmptyOK") || !strings.Contains(out, "NotEmptyOK") {
+		t.Errorf("String operations failed. Output: %s", out)
 	}
 }

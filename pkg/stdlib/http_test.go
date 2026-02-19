@@ -2,9 +2,9 @@ package stdlib_test
 
 import (
 	"testing"
-	"github.com/agenthands/nforth/pkg/stdlib"
-	"github.com/agenthands/nforth/pkg/vm"
-	"github.com/agenthands/nforth/pkg/core/value"
+	"github.com/agenthands/npython/pkg/stdlib"
+	"github.com/agenthands/npython/pkg/vm"
+	"github.com/agenthands/npython/pkg/core/value"
 )
 
 func TestHTTPSandboxDomainBlocking(t *testing.T) {

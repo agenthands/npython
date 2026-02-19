@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"github.com/agenthands/nforth/pkg/core/value"
-	"github.com/agenthands/nforth/pkg/vm"
+	"github.com/agenthands/npython/pkg/core/value"
+	"github.com/agenthands/npython/pkg/vm"
 )
 
 // ParseJSON: ( str -- map )

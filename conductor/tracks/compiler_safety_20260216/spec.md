@@ -1,7 +1,7 @@
 # Specification: Phase 2 - Compiler & Safety Pipeline
 
 ## Overview
-Implement a high-performance, zero-allocation compiler for Natural FORTH (nFORTH). The compiler acts as the primary safety gate, enforcing "State Grounding" (the INTO rule) and "Scoped Authority" (capability-based access) at compile-time to prevent LLM hallucinations and security violations.
+Implement a high-performance, zero-allocation compiler for nPython. The compiler acts as the primary safety gate, enforcing "State Grounding" (the INTO rule) and "Scoped Authority" (capability-based access) at compile-time to prevent LLM hallucinations and security violations.
 
 ## Functional Requirements
 - **Zero-Allocation Lexer**: 
@@ -11,7 +11,7 @@ Implement a high-performance, zero-allocation compiler for Natural FORTH (nFORTH
     - Support for "Noise Words" (e.g., `THE`, `WITH`, `USING`) which are identified but skipped by the parser.
     - Support for single-line comments (`\ `).
 - **EBNF Parser & Validator**:
-    - Implement the AST based on the nFORTH v1.0 EBNF.
+    - Implement the AST based on the nPython v1.0 EBNF.
     - **The "INTO" Enforcer**: Track `VirtualStackDepth`. Every statement must result in `depth == 0`.
     - Raise `ErrFloatingState` with contextual hints on any stack drift.
 - **Cumulative Scope Validation**:

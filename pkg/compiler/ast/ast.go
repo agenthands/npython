@@ -1,6 +1,6 @@
 package ast
 
-import "github.com/agenthands/nforth/pkg/compiler/lexer"
+import "github.com/agenthands/npython/pkg/compiler/lexer"
 
 // Node represents any node in the Abstract Syntax Tree.
 type Node interface {

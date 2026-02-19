@@ -2,8 +2,8 @@ package vm_test
 
 import (
 	"testing"
-	"github.com/agenthands/nforth/pkg/vm"
-	"github.com/agenthands/nforth/pkg/core/value"
+	"github.com/agenthands/npython/pkg/vm"
+	"github.com/agenthands/npython/pkg/core/value"
 )
 
 func TestMachineReset(t *testing.T) {
