@@ -23,7 +23,6 @@ z = x + y
 		Constants: bytecode.Constants,
 		Arena:     bytecode.Arena,
 	}
-	machine.Reset()
 
 	err = machine.Run(100)
 	if err != nil {
@@ -55,7 +54,6 @@ else:
 		Constants: bytecode.Constants,
 		Arena:     bytecode.Arena,
 	}
-	machine.Reset()
 
 	err = machine.Run(100)
 	if err != nil {
@@ -87,7 +85,6 @@ while i < 5:
 		Constants: bytecode.Constants,
 		Arena:     bytecode.Arena,
 	}
-	machine.Reset()
 
 	err = machine.Run(500) // More gas for loop
 	if err != nil {
@@ -115,7 +112,6 @@ s = "hello npython"
 		Constants: bytecode.Constants,
 		Arena:     bytecode.Arena,
 	}
-	machine.Reset()
 
 	err = machine.Run(100)
 	if err != nil {

@@ -119,7 +119,7 @@ func (s *HTTPSandbox) SendRequest(m *vm.Machine) error {
 	}
 
 	m.Push(value.Value{
-		Type:   value.TypeMap,
+		Type:   value.TypeDict,
 		Opaque: respMap,
 	})
 
@@ -129,7 +129,7 @@ func (s *HTTPSandbox) SendRequest(m *vm.Machine) error {
 // CheckStatus: ( resp -- status )
 func (s *HTTPSandbox) CheckStatus(m *vm.Machine) error {
 	respVal := m.Pop()
-	if respVal.Type != value.TypeMap {
+	if respVal.Type != value.TypeDict {
 		return errors.New("stdlib/http: CHECK-STATUS expects response map")
 	}
 	respMap := respVal.Opaque.(map[string]any)

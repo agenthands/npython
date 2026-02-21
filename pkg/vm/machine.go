@@ -3,31 +3,11 @@ package vm
 import (
 	"errors"
 	"fmt"
-	"runtime"
+	"math"
 	"strings"
+	"sync"
 	"github.com/agenthands/npython/pkg/core/value"
 )
-
-var (
-	ErrStackOverflow     = errors.New("vm: stack overflow")
-	ErrStackUnderflow    = errors.New("vm: stack underflow")
-	ErrGasExhausted      = errors.New("vm: gas exhausted")
-	ErrSecurityViolation = errors.New("vm: security violation")
-)
-
-// Gatekeeper validates capability tokens for a given scope.
-type Gatekeeper interface {
-	Validate(scope, token string) bool
-}
-
-// HostFunction is a Go function registered to the VM.
-type HostFunction func(m *Machine) error
-
-// HostFunctionEntry tracks a host function and its required security scope.
-type HostFunctionEntry struct {
-	Fn            HostFunction
-	RequiredScope string
-}
 
 const (
 	StackDepth = 128
@@ -35,474 +15,225 @@ const (
 	MaxLocals  = 16
 )
 
-// Frame tracks local variables and return addresses for function calls.
+var (
+	ErrStackOverflow    = errors.New("vm: stack overflow")
+	ErrStackUnderflow   = errors.New("vm: stack underflow")
+	ErrFrameOverflow    = errors.New("vm: call stack overflow")
+	ErrGasExhausted     = errors.New("vm: gas exhausted")
+	ErrSecurityViolation = errors.New("vm: security violation")
+)
+
 type Frame struct {
-	ReturnIP int
-	Locals   [MaxLocals]value.Value
+	ReturnIP   int
+	BaseSP     int 
+	ArgCount   int
+	Locals     [MaxLocals]value.Value
+	LocalNames [MaxLocals]string
 }
 
-// Machine represents a single Agent's execution sandbox.
-// It uses fixed-size arrays to ensure a predictable memory footprint.
 type Machine struct {
-	Stack [StackDepth]value.Value
-	SP    int // Stack Pointer
-
-	Frames [MaxFrames]Frame
-	FP     int // Frame Pointer
-
-	IP    int      // Instruction Pointer
-	Code  []uint32 // Bytecode instructions
-	
-	Constants []value.Value // Constant pool
-	
-	// Arena for string data
-	Arena []byte
-
-	// Security Context
-	Gatekeeper   Gatekeeper
-	ScopeStack   []string
-	HostRegistry []HostFunctionEntry
+	Stack      [StackDepth]value.Value
+	SP         int
+	IP         int
+	FP         int
+	Frames     [MaxFrames]Frame
+	Code       []uint32
+	Constants  []value.Value
+	Arena      []byte
+	Gatekeeper Gatekeeper
+	TokenMap   map[string]string
+	ScopeStack []string
+	FunctionRegistry map[string]int
+	HostRegistry     []HostFunctionEntry
 }
 
-// Reset clears the machine state for reuse (sync.Pool compliant).
+type Gatekeeper interface {
+	Validate(scope, token string) bool
+}
+
+type HostFunctionEntry struct {
+	RequiredScope string
+	Fn            func(*Machine) error
+}
+
+var machinePool = sync.Pool{
+	New: func() any {
+		return &Machine{
+			TokenMap:         make(map[string]string),
+			ScopeStack:       make([]string, 0, 8),
+			FunctionRegistry: make(map[string]int),
+		}
+	},
+}
+
+func GetMachine() *Machine {
+	return machinePool.Get().(*Machine)
+}
+
+func PutMachine(m *Machine) {
+	m.Reset()
+	machinePool.Put(m)
+}
+
 func (m *Machine) Reset() {
 	m.SP = 0
 	m.IP = 0
 	m.FP = 0
+	for i := range m.Frames { m.Frames[i] = Frame{} }
 	m.ScopeStack = m.ScopeStack[:0]
-	
-	// Zero out the stack to avoid data leakage between agent runs
-	for i := range m.Stack {
-		m.Stack[i] = value.Value{}
-	}
-	
-	// Zero out frames
-	for i := range m.Frames {
-		m.Frames[i] = Frame{}
-	}
+	for k := range m.TokenMap { delete(m.TokenMap, k) }
 }
 
-// RegisterHostFunction adds a host-side Go function to the VM's registry.
-func (m *Machine) RegisterHostFunction(scope string, fn HostFunction) uint32 {
-	m.HostRegistry = append(m.HostRegistry, HostFunctionEntry{
-		Fn:            fn,
-		RequiredScope: scope,
-	})
-	return uint32(len(m.HostRegistry) - 1)
-}
-
-// HasScope checks if a capability scope is currently active in the cumulative stack.
-func (m *Machine) HasScope(scope string) bool {
-	for _, s := range m.ScopeStack {
-		if s == scope {
-			return true
-		}
-	}
-	return false
-}
-
-// Push adds a value to the stack. Panics on overflow.
 func (m *Machine) Push(v value.Value) {
-	if m.SP >= StackDepth {
-		panic(ErrStackOverflow)
-	}
 	m.Stack[m.SP] = v
 	m.SP++
 }
 
-// Pop removes and returns the top value from the stack. Panics on underflow.
 func (m *Machine) Pop() value.Value {
-	if m.SP <= 0 {
-		panic(ErrStackUnderflow)
-	}
 	m.SP--
 	return m.Stack[m.SP]
 }
 
-// Run executes instructions until HALT, error, or gas exhaustion.
+func (m *Machine) Peek() value.Value {
+	return m.Stack[m.SP-1]
+}
+
+func (m *Machine) RegisterHostFunction(scope string, fn func(*Machine) error) {
+	m.HostRegistry = append(m.HostRegistry, HostFunctionEntry{
+		RequiredScope: scope,
+		Fn:            fn,
+	})
+}
+
+func (m *Machine) HasScope(scope string) bool {
+	for _, s := range m.ScopeStack { if s == scope { return true } }
+	return false
+}
+
+func (m *Machine) Call(ip int, args ...value.Value) (value.Value, error) {
+	m.FP++
+	f := &m.Frames[m.FP]
+	f.ReturnIP = -1
+	f.BaseSP = m.SP
+	f.ArgCount = len(args)
+	for i, a := range args { f.Locals[i] = a }
+	m.IP = ip
+	err := m.Run(1000000)
+	if err != nil && err.Error() != "vm: stop marker" { return value.Value{}, err }
+	return m.Pop(), nil
+}
+
+func isTruthy(v value.Value) bool {
+	switch v.Type {
+	case value.TypeBool: return v.Data != 0
+	case value.TypeInt: return v.Data != 0
+	case value.TypeFloat: return math.Float64frombits(v.Data) != 0
+	case value.TypeString: return uint32(v.Data) != 0
+	case value.TypeList, value.TypeTuple:
+		var list []value.Value
+		if v.Type == value.TypeList { if lp, ok := v.Opaque.(*[]value.Value); ok { list = *lp } } else { if l, ok := v.Opaque.([]value.Value); ok { list = l } }
+		return len(list) > 0
+	case value.TypeDict: if d, ok := v.Opaque.(map[string]any); ok { return len(d) > 0 }; return false
+	case value.TypeIterator: return true
+	}
+	return false
+}
+
+func contains(m *Machine, container, item value.Value) bool {
+	switch container.Type {
+	case value.TypeString: return strings.Contains(value.UnpackString(container.Data, m.Arena), value.UnpackString(item.Data, m.Arena))
+	case value.TypeList:
+		l := *(container.Opaque.(*[]value.Value))
+		for _, v := range l { if v.Type == item.Type && v.Data == item.Data { return true } }
+	case value.TypeDict:
+		d := container.Opaque.(map[string]any)
+		_, ok := d[value.UnpackString(item.Data, m.Arena)]
+		return ok
+	}
+	return false
+}
+
 func (m *Machine) Run(gasLimit int) (err error) {
-	// 1. Safety net: Convert internal stack panics to errors
+	var op uint8
 	defer func() {
 		if r := recover(); r != nil {
-			// Catch our custom stack errors
-			if e, ok := r.(error); ok && (e == ErrStackOverflow || e == ErrStackUnderflow) {
-				err = e
-				return
-			}
-			
-			// Catch Go runtime errors (like index out of range)
-			if _, ok := r.(runtime.Error); ok {
-				err = ErrStackUnderflow 
-				return
-			}
-			
-			panic(r)
+			if e, ok := r.(error); ok && (e == ErrStackUnderflow) { err = fmt.Errorf("vm: underflow at OP_%02X (IP: %d)", op, m.IP) } else { panic(r) }
 		}
 	}()
 
-	// Cache hot fields in local variables for register allocation
-	ip := m.IP
-	sp := m.SP
-	fp := m.FP
-	code := m.Code
-
 	for i := 0; i < gasLimit; i++ {
-		// Mandatory state sync for syscalls/errors
-		m.IP = ip
-		m.SP = sp
-		m.FP = fp
+		instr := m.Code[m.IP]
+		op = uint8(instr >> 24)
+		arg := int(instr & 0x00FFFFFF)
 
-		instr := code[ip]
-		op := uint8(instr >> 24)
-		arg := instr & 0x00FFFFFF
-
-		// Sync SP back before each instruction to allow SYSCALLs to see it?
-		// No, usually we sync at SYSCALL.
-		
 		switch op {
-		case OP_HALT:
-			m.IP = ip
-			m.SP = sp
-			m.FP = fp
-			return nil
-
-		case OP_PUSH_C:
-			m.Stack[sp] = m.Constants[arg]
-			sp++
-			m.SP = sp
-			ip++
-
+		case OP_HALT: return nil
+		case OP_PUSH_C: m.Push(m.Constants[arg]); m.IP++
 		case OP_ADD:
-			b := int64(m.Stack[sp-1].Data)
-			a := int64(m.Stack[sp-2].Data)
-			m.Stack[sp-2].Data = uint64(a + b)
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_SUB:
-			b := int64(m.Stack[sp-1].Data)
-			a := int64(m.Stack[sp-2].Data)
-			m.Stack[sp-2].Data = uint64(a - b)
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_MUL:
-			b := int64(m.Stack[sp-1].Data)
-			a := int64(m.Stack[sp-2].Data)
-			m.Stack[sp-2].Data = uint64(a * b)
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_DIV:
-			b := int64(m.Stack[sp-1].Data)
-			a := int64(m.Stack[sp-2].Data)
-			if b == 0 {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return errors.New("vm: division by zero")
-			}
-			m.Stack[sp-2].Data = uint64(a / b)
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_EQ:
-			bVal := m.Stack[sp-1]
-			aVal := m.Stack[sp-2]
-			var res uint64
-			if aVal.Type == value.TypeString && bVal.Type == value.TypeString {
-				aStr := value.UnpackString(aVal.Data, m.Arena)
-				bStr := value.UnpackString(bVal.Data, m.Arena)
-				if aStr == bStr {
-					res = 1
-				}
-			} else {
-				if aVal.Data == bVal.Data {
-					res = 1
-				}
-			}
-			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_NE:
-			bVal := m.Stack[sp-1]
-			aVal := m.Stack[sp-2]
-			var res uint64
-			if aVal.Type == value.TypeString && bVal.Type == value.TypeString {
-				aStr := value.UnpackString(aVal.Data, m.Arena)
-				bStr := value.UnpackString(bVal.Data, m.Arena)
-				if aStr != bStr {
-					res = 1
-				}
-			} else {
-				if aVal.Data != bVal.Data {
-					res = 1
-				}
-			}
-			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_GT:
-			b := int64(m.Stack[sp-1].Data)
-			a := int64(m.Stack[sp-2].Data)
-			var res uint64
-			if a > b {
-				res = 1
-			}
-			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_LT:
-			b := int64(m.Stack[sp-1].Data)
-			a := int64(m.Stack[sp-2].Data)
-			var res uint64
-			if a < b {
-				res = 1
-			}
-			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_DROP:
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_PRINT:
-			// ( val -- )
-			_ = m.Stack[sp-1]
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_CONTAINS:
-			// ( str pattern -- bool )
-			patternPacked := m.Stack[sp-1].Data
-			strPacked := m.Stack[sp-2].Data
-			
-			pattern := value.UnpackString(patternPacked, m.Arena)
-			str := value.UnpackString(strPacked, m.Arena)
-			
-			var res uint64
-			if strings.Contains(str, pattern) {
-				res = 1
-			}
-			m.Stack[sp-2] = value.Value{Type: value.TypeBool, Data: res}
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_FIND:
-			// ( str pattern -- index )
-			patternPacked := m.Stack[sp-1].Data
-			strPacked := m.Stack[sp-2].Data
-			
-			pattern := value.UnpackString(patternPacked, m.Arena)
-			str := value.UnpackString(strPacked, m.Arena)
-			
-			idx := strings.Index(str, pattern)
-			m.Stack[sp-2] = value.Value{Type: value.TypeInt, Data: uint64(int64(idx))}
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_SLICE:
-			// ( str start length -- sub )
-			length := int64(m.Stack[sp-1].Data)
-			start := int64(m.Stack[sp-2].Data)
-			strVal := m.Stack[sp-3]
-			
-			if strVal.Type != value.TypeString {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return errors.New("vm: SLICE expects string")
-			}
-
-			origOffset := uint32(strVal.Data >> 32)
-			origLength := uint32(strVal.Data)
-
-			if start < 0 || length < 0 || uint32(start+length) > origLength {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return errors.New("vm: SLICE out of bounds")
-			}
-
-			newOffset := origOffset + uint32(start)
-			newLength := uint32(length)
-			
-			m.Stack[sp-3] = value.Value{
-				Type: value.TypeString,
-				Data: value.PackString(newOffset, newLength),
-			}
-			sp -= 2
-			m.SP = sp
-			ip++
-
-		case OP_LEN:
-			// ( str -- len )
-			strVal := m.Stack[sp-1]
-			if strVal.Type != value.TypeString {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return errors.New("vm: LEN expects string")
-			}
-			length := uint32(strVal.Data)
-			m.Stack[sp-1] = value.Value{Type: value.TypeInt, Data: uint64(length)}
-			m.SP = sp
-			ip++
-
-		case OP_TRIM:
-			// ( str -- str )
-			strVal := m.Stack[sp-1]
-			if strVal.Type != value.TypeString {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return errors.New("vm: TRIM expects string")
-			}
-			str := value.UnpackString(strVal.Data, m.Arena)
-			trimmed := strings.TrimSpace(str)
-			
-			// If it's already trimmed, do nothing.
-			// But wait, strings in npython are offset+length. 
-			// Strings.TrimSpace might change start/length.
-			// Actually, let's just push a NEW string into arena to be safe?
-			// NO, we can just find the new offset/length in the existing arena if it's a subslice.
-			// But strings.TrimSpace might return a copy if it's complex.
-			// For now, let's just append to arena.
-			
-			offset := uint32(len(m.Arena))
-			length := uint32(len(trimmed))
-			m.Arena = append(m.Arena, []byte(trimmed)...)
-			m.Stack[sp-1] = value.Value{Type: value.TypeString, Data: value.PackString(offset, length)}
-			m.SP = sp
-			ip++
-
-		case OP_ERROR:
-			// ( msg -- )
-			msgPacked := m.Stack[sp-1].Data
-			msg := value.UnpackString(msgPacked, m.Arena)
-			m.IP = ip
-			m.SP = sp
-			m.FP = fp
-			return errors.New("npython error: " + msg)
-
-		case OP_PUSH_L:
-			m.Stack[sp] = m.Frames[fp].Locals[arg]
-			sp++
-			m.SP = sp
-			ip++
-
-		case OP_POP_L:
-			if sp <= 0 {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return fmt.Errorf("vm: stack underflow at POP_L index %d (IP: %d)", arg, ip)
-			}
-			val := m.Stack[sp-1]
-			m.Frames[fp].Locals[arg] = val
-			sp--
-			m.SP = sp
-			ip++
-
-		case OP_JMP:
-			ip = int(arg)
-
-		case OP_JMP_FALSE:
-			cond := m.Stack[sp-1].Data
-			sp--
-			m.SP = sp
-			if cond == 0 {
-				ip = int(arg)
-			} else {
-				ip++
-			}
-
+			b := m.Pop(); a := m.Pop()
+			if a.Type == value.TypeString {
+				res := value.UnpackString(a.Data, m.Arena) + b.Format(m.Arena)
+				off := uint32(len(m.Arena)); m.Arena = append(m.Arena, []byte(res)...)
+				m.Push(value.Value{Type: value.TypeString, Data: value.PackString(off, uint32(len(res)))})
+			} else { m.Push(value.Value{Type: value.TypeInt, Data: uint64(int64(a.Data) + int64(b.Data))}) }
+			m.IP++
+		case OP_SUB: b := m.Pop().Int(); a := m.Pop().Int(); m.Push(value.Value{Type: value.TypeInt, Data: uint64(a - b)}); m.IP++
+		case OP_MUL: b := m.Pop().Int(); a := m.Pop().Int(); m.Push(value.Value{Type: value.TypeInt, Data: uint64(a * b)}); m.IP++
+		case OP_DIV: b := m.Pop().Int(); a := m.Pop().Int(); if b == 0 { return errors.New("vm: div0") }; m.Push(value.Value{Type: value.TypeInt, Data: uint64(a / b)}); m.IP++
+		case OP_MOD:
+			b := m.Pop(); a := m.Pop()
+			if a.Type == value.TypeString {
+				res := strings.Replace(value.UnpackString(a.Data, m.Arena), "%s", b.Format(m.Arena), 1)
+				off := uint32(len(m.Arena)); m.Arena = append(m.Arena, []byte(res)...)
+				m.Push(value.Value{Type: value.TypeString, Data: value.PackString(off, uint32(len(res)))})
+			} else { if b.Data == 0 { return errors.New("vm: div0") }; m.Push(value.Value{Type: value.TypeInt, Data: uint64(int64(a.Data) % int64(b.Data))}) }
+			m.IP++
+		case OP_EQ: b := m.Pop(); a := m.Pop(); r := uint64(0); if a.Type == b.Type && a.Data == b.Data { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_NE: b := m.Pop(); a := m.Pop(); r := uint64(0); if a.Type != b.Type || a.Data != b.Data { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_GT: b := m.Pop().Int(); a := m.Pop().Int(); r := uint64(0); if a > b { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_LT: b := m.Pop().Int(); a := m.Pop().Int(); r := uint64(0); if a < b { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_LTE: b := m.Pop().Int(); a := m.Pop().Int(); r := uint64(0); if a <= b { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_GTE: b := m.Pop().Int(); a := m.Pop().Int(); r := uint64(0); if a >= b { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_POW:
+			bVal := m.Pop(); aVal := m.Pop()
+			var f1, f2 float64
+			if aVal.Type == value.TypeInt { f1 = float64(aVal.Int()) } else { f1 = math.Float64frombits(aVal.Data) }
+			if bVal.Type == value.TypeInt { f2 = float64(bVal.Int()) } else { f2 = math.Float64frombits(bVal.Data) }
+			m.Push(value.Value{Type: value.TypeFloat, Data: math.Float64bits(math.Pow(f1, f2))}); m.IP++
+		case OP_AND: b := m.Pop(); a := m.Pop(); r := uint64(0); if isTruthy(a) && isTruthy(b) { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_OR: b := m.Pop(); a := m.Pop(); r := uint64(0); if isTruthy(a) || isTruthy(b) { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_IN: c := m.Pop(); i := m.Pop(); r := uint64(0); if contains(m, c, i) { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_NOT_IN: c := m.Pop(); i := m.Pop(); r := uint64(0); if !contains(m, c, i) { r = 1 }; m.Push(value.Value{Type: value.TypeBool, Data: r}); m.IP++
+		case OP_DROP: m.Pop(); m.IP++
+		case OP_DUP: m.Push(m.Stack[m.SP-1-int(arg)]); m.IP++
+		case OP_JMP: m.IP = arg
+		case OP_JMP_FALSE: if !isTruthy(m.Pop()) { m.IP = arg } else { m.IP++ }
+		case OP_PUSH_L: m.Push(m.Frames[m.FP].Locals[arg]); m.IP++
+		case OP_POP_L: m.Frames[m.FP].Locals[arg] = m.Pop(); m.IP++
 		case OP_CALL:
-			// Save current state
-			m.Frames[fp+1].ReturnIP = ip + 1
-			fp++
-			ip = int(arg)
-
+			target, argc := arg >> 8, arg & 0xFF
+			m.Frames[m.FP+1].ReturnIP, m.Frames[m.FP+1].ArgCount, m.Frames[m.FP+1].BaseSP = m.IP+1, argc, m.SP-argc
+			for j := 0; j < argc; j++ { m.Frames[m.FP+1].Locals[j] = m.Stack[m.SP-argc+j] }
+			m.SP -= argc; m.FP++; m.IP = target
 		case OP_RET:
-			ip = m.Frames[fp].ReturnIP
-			fp--
-
+			res := m.Pop()
+			if m.Frames[m.FP].ReturnIP == -1 { m.SP = m.Frames[m.FP].BaseSP; m.Push(res); m.IP = -1; m.FP--; return errors.New("vm: stop marker") }
+			m.IP = m.Frames[m.FP].ReturnIP; m.SP = m.Frames[m.FP].BaseSP; m.FP--; m.Push(res)
 		case OP_ADDRESS:
-			// Stack: ( scope token -- )
-			// token is at SP-1, scope is at SP-2
-			tokenPacked := m.Stack[sp-1].Data
-			scopePacked := m.Stack[sp-2].Data
-			sp -= 2
-
-			m.SP = sp // Sync before unpacking if needed, though UnpackString uses m.Arena
-			token := value.UnpackString(tokenPacked, m.Arena)
-			scope := value.UnpackString(scopePacked, m.Arena)
-
-			if m.Gatekeeper == nil || !m.Gatekeeper.Validate(scope, token) {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return ErrSecurityViolation
-			}
-
-			m.ScopeStack = append(m.ScopeStack, scope)
-			ip++
-
+			tVal := m.Pop(); sVal := m.Pop()
+			s := value.UnpackString(sVal.Data, m.Arena); t := value.UnpackString(tVal.Data, m.Arena)
+			if m.Gatekeeper == nil || !m.Gatekeeper.Validate(s, t) { return ErrSecurityViolation }
+			m.ScopeStack = append(m.ScopeStack, s); m.TokenMap[s] = t; m.IP++
 		case OP_EXIT_ADDR:
-			if len(m.ScopeStack) > 0 {
-				m.ScopeStack = m.ScopeStack[:len(m.ScopeStack)-1]
-			}
-			ip++
-
+			if len(m.ScopeStack) > 0 { m.ScopeStack = m.ScopeStack[:len(m.ScopeStack)-1] }
+			m.IP++
 		case OP_SYSCALL:
 			entry := m.HostRegistry[arg]
-			if entry.RequiredScope != "" && !m.HasScope(entry.RequiredScope) {
-				m.IP = ip
-				m.SP = sp
-				m.FP = fp
-				return ErrSecurityViolation
-			}
-
-			// Sync Machine state before Syscall
-			m.IP = ip
-			m.SP = sp
-			m.FP = fp
-
-			if err := entry.Fn(m); err != nil {
-				return err
-			}
-
-			// Restore state after Syscall (SP might have changed)
-			sp = m.SP
-			ip = m.IP
-			ip++ // Advance past syscall
-
-		default:
-			m.IP = ip
-			m.SP = sp
-			m.FP = fp
-			return errors.New("vm: unknown opcode")
+			if entry.RequiredScope != "" && !m.HasScope(entry.RequiredScope) { return ErrSecurityViolation }
+			if err := entry.Fn(m); err != nil { return err }
+			m.IP++
+		default: return fmt.Errorf("vm: unknown op %02X", op)
 		}
 	}
-
-	m.IP = ip
-	m.SP = sp
-	m.FP = fp
 	return ErrGasExhausted
 }

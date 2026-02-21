@@ -47,7 +47,7 @@ func IsEmpty(m *vm.Machine) error {
 		empty = val.Data == 0 || uint32(val.Data) == 0
 	} else if val.Type == value.TypeVoid {
 		empty = true
-	} else if val.Type == value.TypeMap {
+	} else if val.Type == value.TypeDict {
 		if m, ok := val.Opaque.(map[string]any); ok {
 			empty = len(m) == 0
 		}

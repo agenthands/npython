@@ -11,27 +11,29 @@ import (
 )
 
 type Emitter struct {
-	instructions []uint32
-	constants    []value.Value
-	arena        []byte
-	locals       map[string]int
-	functions    map[string]int // Name -> Start IP
-	src          []byte
+	instructions  []uint32
+	constants     []value.Value
+	arena         []byte
+	locals        map[string]int
+	functions     map[string]int // Name -> Start IP
+	src           []byte
+	stringOffsets map[string]uint32
 }
 
 func NewEmitter(src []byte) *Emitter {
 	return &Emitter{
-		locals:    make(map[string]int),
-		functions: make(map[string]int),
-		src:       src,
+		locals:        make(map[string]int),
+		functions:     make(map[string]int),
+		src:           src,
+		stringOffsets: make(map[string]uint32),
 	}
 }
 
 func (e *Emitter) Emit(prog *ast.Program) (*vm.Bytecode, error) {
-	e.instructions = nil
-	e.constants = nil
-	e.arena = nil
-	// locals and functions are kept for the lifetime of this emitter instance
+	e.instructions = e.instructions[:0]
+	e.constants = e.constants[:0]
+	e.arena = e.arena[:0]
+	e.stringOffsets = make(map[string]uint32)
 	
 	if prog != nil {
 		for _, node := range prog.Nodes {
@@ -48,6 +50,7 @@ func (e *Emitter) Emit(prog *ast.Program) (*vm.Bytecode, error) {
 		Instructions: e.instructions,
 		Constants:    e.constants,
 		Arena:        e.arena,
+		Functions:    e.functions,
 	}, nil
 }
 
@@ -162,8 +165,11 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				upperName == "SEND-REQUEST" ||
 				upperName == "CHECK-STATUS" ||
 				upperName == "FORMAT-STRING" ||
-				upperName == "IS-EMPTY" {
-				// ... (rest of syscall logic)
+				upperName == "IS-EMPTY" ||
+				upperName == "WITH-CLIENT" ||
+				upperName == "SET-URL" ||
+				upperName == "SET-METHOD" {
+				
 				var hostIdx uint32
 				switch upperName {
 				case "WRITE-FILE":
@@ -180,12 +186,6 @@ func (e *Emitter) emitNode(node ast.Node) error {
 					hostIdx = 5
 				case "CHECK-STATUS":
 					hostIdx = 6
-				case "WITH-CLIENT":
-					hostIdx = 11
-				case "SET-URL":
-					hostIdx = 12
-				case "SET-METHOD":
-					hostIdx = 13
 				case "PARSE-JSON-KEY":
 					hostIdx = 7
 				case "PARSE-AND-GET":
@@ -194,6 +194,12 @@ func (e *Emitter) emitNode(node ast.Node) error {
 					hostIdx = 9
 				case "IS-EMPTY":
 					hostIdx = 10
+				case "WITH-CLIENT":
+					hostIdx = 11
+				case "SET-URL":
+					hostIdx = 12
+				case "SET-METHOD":
+					hostIdx = 13
 				default:
 					hostIdx = 100
 				}
@@ -207,7 +213,6 @@ func (e *Emitter) emitNode(node ast.Node) error {
 			e.emitOp(vm.OP_CALL, uint32(startIP))
 		} else {
 			// Local lookup
-			upperName := strings.ToUpper(name)
 			idx, ok := e.locals[upperName]
 			if !ok {
 				// AI-NATIVE FALLBACK: If not a local, it's a string literal constant.
@@ -339,9 +344,13 @@ func (e *Emitter) addConstant(v value.Value) int {
 }
 
 func (e *Emitter) packNewString(s string) uint64 {
+	if offset, ok := e.stringOffsets[s]; ok {
+		return value.PackString(offset, uint32(len(s)))
+	}
 	offset := uint32(len(e.arena))
 	length := uint32(len(s))
 	e.arena = append(e.arena, []byte(s)...)
+	e.stringOffsets[s] = offset
 	return value.PackString(offset, length)
 }
 

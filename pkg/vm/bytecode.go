@@ -7,4 +7,5 @@ type Bytecode struct {
 	Instructions []uint32
 	Constants    []value.Value
 	Arena        []byte
+	Functions    map[string]int
 }

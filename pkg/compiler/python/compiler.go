@@ -2,6 +2,7 @@ package python
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"strconv"
 
@@ -25,307 +26,374 @@ var PythonBuiltins = map[string]uint32{
 	"set_method":    13,
 	"send_request":   5,
 	"check_status":   6,
+	"len":           14,
+	"range":         15,
+	"list":          16,
+	"sum":           17,
+	"max":           18,
+	"min":           19,
+	"map":           20,
+	"abs":           21,
+	"bool":          22,
+	"int":           23,
+	"str":           24,
+	"filter":        25,
+	"pow":           26,
+	"all":           27,
+	"any":           28,
+	"divmod":        32,
+	"round":         33,
+	"float":         34,
+	"bin":           35,
+	"oct":           36,
+	"hex":           37,
+	"chr":           38,
+	"ord":           39,
+	"dict":          40,
+	"tuple":         41,
+	"set":           42,
+	"reversed":      43,
+	"sorted":        44,
+	"zip":           45,
+	"enumerate":     46,
+	"repr":          47,
+	"ascii":         48,
+	"hash":          49,
+	"id":            50,
+	"type":          51,
+	"callable":      52,
+	"iter":          53,
+	"next":          54,
+	"locals":        55,
+	"globals":       56,
+	"slice":         57,
+	"bytes":         58,
+	"bytearray":     59,
 }
 
-// Compiler transforms Python AST into nPython bytecode
+type loopContext struct {
+	startIP    uint32
+	breakJumps []int
+}
+
 type Compiler struct {
-	instructions []uint32
-	constants    []value.Value
-	locals       map[string]int
-	nextLocal    int
-	arena        []byte
+	instructions  []uint32
+	constants     []value.Value
+	locals        map[string]int
+	nextLocal     int
+	arena         []byte
+	stringOffsets map[string]uint32
+	functions     map[string]int
+	loops         []*loopContext
 }
 
 func NewCompiler() *Compiler {
 	return &Compiler{
-		locals:    make(map[string]int),
-		constants: make([]value.Value, 0),
-		arena:     make([]byte, 0),
+		locals:        make(map[string]int),
+		constants:     make([]value.Value, 0),
+		arena:         make([]byte, 0, 1024),
+		stringOffsets: make(map[string]uint32),
+		functions:     make(map[string]int),
+		loops:         make([]*loopContext, 0),
 	}
 }
 
-// Compile compiles Python source code into nPython bytecode
 func (c *Compiler) Compile(src string) (*vm.Bytecode, error) {
-	// Reset state
-	c.instructions = nil
-	c.constants = nil
+	c.instructions = c.instructions[:0]
+	c.constants = c.constants[:0]
 	c.locals = make(map[string]int)
 	c.nextLocal = 0
-	c.arena = nil
+	c.loops = c.loops[:0]
+	c.arena = c.arena[:0]
+	c.stringOffsets = make(map[string]uint32)
+	c.functions = make(map[string]int)
 
 	mod, err := parser.Parse(strings.NewReader(src), "<string>", py.ExecMode)
-	if err != nil {
-		return nil, fmt.Errorf("python parse error: %w", err)
-	}
+	if err != nil { return nil, fmt.Errorf("python parse error: %w", err) }
 
 	module, ok := mod.(*ast.Module)
-	if !ok {
-		return nil, fmt.Errorf("expected *ast.Module, got %T", mod)
-	}
+	if !ok { return nil, fmt.Errorf("expected *ast.Module") }
 
 	for _, stmt := range module.Body {
-		if err := c.emitStmt(stmt); err != nil {
-			return nil, err
-		}
+		if err := c.emitStmt(stmt); err != nil { return nil, err }
 	}
-
-	// Always end with HALT
 	c.emitOp(vm.OP_HALT, 0)
 
 	return &vm.Bytecode{
 		Instructions: c.instructions,
 		Constants:    c.constants,
 		Arena:        c.arena,
+		Functions:    c.functions,
 	}, nil
 }
 
 func (c *Compiler) emitOp(op uint8, arg uint32) {
-	instr := (uint32(op) << 24) | (arg & 0x00FFFFFF)
-	c.instructions = append(c.instructions, instr)
+	c.instructions = append(c.instructions, (uint32(op)<<24)|(arg&0x00FFFFFF))
 }
 
 func (c *Compiler) addConstant(v value.Value) uint32 {
 	for i, existing := range c.constants {
-		if existing.Type == v.Type && existing.Data == v.Data {
-			return uint32(i)
-		}
+		if existing.Type == v.Type && existing.Data == v.Data { return uint32(i) }
 	}
 	c.constants = append(c.constants, v)
 	return uint32(len(c.constants) - 1)
 }
 
 func (c *Compiler) packNewString(s string) uint64 {
+	if offset, ok := c.stringOffsets[s]; ok { return value.PackString(offset, uint32(len(s))) }
 	offset := uint32(len(c.arena))
-	length := uint32(len(s))
 	c.arena = append(c.arena, []byte(s)...)
-	return value.PackString(offset, length)
+	c.stringOffsets[s] = offset
+	return value.PackString(offset, uint32(len(s)))
 }
 
 func (c *Compiler) getLocalIndex(name string) int {
-	if idx, ok := c.locals[name]; ok {
-		return idx
-	}
-	idx := c.nextLocal
-	c.locals[name] = idx
-	c.nextLocal++
+	if idx, ok := c.locals[name]; ok { return idx }
+	idx := c.nextLocal; c.locals[name] = idx; c.nextLocal++
 	return idx
 }
 
 func (c *Compiler) emitStmt(stmt ast.Stmt) error {
 	switch s := stmt.(type) {
 	case *ast.Assign:
-		if len(s.Targets) != 1 {
-			return fmt.Errorf("only single assignment supported")
+		if len(s.Targets) != 1 { return fmt.Errorf("only single assignment supported") }
+		switch target := s.Targets[0].(type) {
+		case *ast.Name:
+			if err := c.emitExpr(s.Value); err != nil { return err }
+			c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(target.Id))))
+		case *ast.Tuple:
+			if err := c.emitExpr(s.Value); err != nil { return err }
+			for i, el := range target.Elts {
+				c.emitOp(vm.OP_DUP, 0)
+				c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(i)}))
+				c.emitOp(vm.OP_SYSCALL, 30) // get_item
+				c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(el.(*ast.Name).Id))))
+			}
+			c.emitOp(vm.OP_DROP, 0)
+		case *ast.Subscript:
+			if err := c.emitExpr(target.Value); err != nil { return err }
+			if err := c.emitExpr(target.Slice.(*ast.Index).Value); err != nil { return err }
+			if err := c.emitExpr(s.Value); err != nil { return err }
+			c.emitOp(vm.OP_SYSCALL, 31) // set_item
 		}
-		target, ok := s.Targets[0].(*ast.Name)
-		if !ok {
-			return fmt.Errorf("only variable assignment supported, got %T", s.Targets[0])
+	case *ast.AugAssign:
+		idx := uint32(c.getLocalIndex(string(s.Target.(*ast.Name).Id)))
+		c.emitOp(vm.OP_PUSH_L, idx)
+		if err := c.emitExpr(s.Value); err != nil { return err }
+		switch s.Op {
+		case ast.Add: c.emitOp(vm.OP_ADD, 0)
+		case ast.Sub: c.emitOp(vm.OP_SUB, 0)
+		case ast.Mult: c.emitOp(vm.OP_MUL, 0)
+		case ast.Div: c.emitOp(vm.OP_DIV, 0)
 		}
-		if err := c.emitExpr(s.Value); err != nil {
-			return err
-		}
-		idx := c.getLocalIndex(string(target.Id))
-		c.emitOp(vm.OP_POP_L, uint32(idx))
-		return nil
-
+		c.emitOp(vm.OP_POP_L, idx)
 	case *ast.ExprStmt:
-		if err := c.emitExpr(s.Value); err != nil {
-			return err
-		}
-		// Special case: if it's a builtin call that we know is void-ish or we want to ignore result
-		if call, ok := s.Value.(*ast.Call); ok {
-			if name, ok := call.Func.(*ast.Name); ok {
-				if string(name.Id) == "print" || string(name.Id) == "write_file" {
-					return nil
-				}
-			}
-		}
+		if err := c.emitExpr(s.Value); err != nil { return err }
 		c.emitOp(vm.OP_DROP, 0)
-		return nil
-
 	case *ast.If:
-		if err := c.emitExpr(s.Test); err != nil {
-			return err
-		}
-		jumpFalseIdx := len(c.instructions)
-		c.emitOp(vm.OP_JMP_FALSE, 0)
-		for _, stmt := range s.Body {
-			if err := c.emitStmt(stmt); err != nil {
-				return err
-			}
-		}
+		if err := c.emitExpr(s.Test); err != nil { return err }
+		jumpFalseIdx := len(c.instructions); c.emitOp(vm.OP_JMP_FALSE, 0)
+		for _, stmt := range s.Body { if err := c.emitStmt(stmt); err != nil { return err } }
 		if len(s.Orelse) > 0 {
-			jumpEndIdx := len(c.instructions)
-			c.emitOp(vm.OP_JMP, 0)
+			jumpEndIdx := len(c.instructions); c.emitOp(vm.OP_JMP, 0)
 			c.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
-			for _, stmt := range s.Orelse {
-				if err := c.emitStmt(stmt); err != nil {
-					return err
-				}
-			}
+			for _, stmt := range s.Orelse { if err := c.emitStmt(stmt); err != nil { return err } }
 			c.instructions[jumpEndIdx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
-		} else {
-			c.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
-		}
-		return nil
-
+		} else { c.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF) }
 	case *ast.While:
-		loopStartIdx := len(c.instructions)
-		if err := c.emitExpr(s.Test); err != nil {
-			return err
-		}
-		jumpFalseIdx := len(c.instructions)
-		c.emitOp(vm.OP_JMP_FALSE, 0)
-		for _, stmt := range s.Body {
-			if err := c.emitStmt(stmt); err != nil {
-				return err
-			}
-		}
-		c.emitOp(vm.OP_JMP, uint32(loopStartIdx))
+		ctx := &loopContext{startIP: uint32(len(c.instructions))}; c.loops = append(c.loops, ctx)
+		if err := c.emitExpr(s.Test); err != nil { return err }
+		jumpFalseIdx := len(c.instructions); c.emitOp(vm.OP_JMP_FALSE, 0)
+		for _, stmt := range s.Body { if err := c.emitStmt(stmt); err != nil { return err } }
+		c.emitOp(vm.OP_JMP, ctx.startIP)
 		c.instructions[jumpFalseIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
-		return nil
-
-	case *ast.With:
-		// Support 'with scope(name, token):'
-		if len(s.Items) != 1 {
-			return fmt.Errorf("only single with item supported")
-		}
-		item := s.Items[0]
-		call, ok := item.ContextExpr.(*ast.Call)
-		if !ok {
-			return fmt.Errorf("with expects call to scope()")
-		}
-		name, ok := call.Func.(*ast.Name)
-		if !ok || string(name.Id) != "scope" {
-			return fmt.Errorf("with expects scope() context manager")
-		}
-		if len(call.Args) != 2 {
-			return fmt.Errorf("scope() expects 2 arguments (name, token)")
-		}
-
-		// Push args and emit OP_ADDRESS
-		if err := c.emitExpr(call.Args[0]); err != nil {
-			return err
-		}
-		if err := c.emitExpr(call.Args[1]); err != nil {
-			return err
-		}
-		c.emitOp(vm.OP_ADDRESS, 0)
-
-		// Body
-		for _, stmt := range s.Body {
-			if err := c.emitStmt(stmt); err != nil {
-				return err
+		for _, idx := range ctx.breakJumps { c.instructions[idx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF) }
+		c.loops = c.loops[:len(c.loops)-1]
+	case *ast.For:
+		if err := c.emitExpr(s.Iter); err != nil { return err }
+		c.emitOp(vm.OP_SYSCALL, 53) // iter()
+		ctx := &loopContext{startIP: uint32(len(c.instructions))}; c.loops = append(c.loops, ctx)
+		c.emitOp(vm.OP_SYSCALL, 60) // has_next()
+		jumpEndIdx := len(c.instructions); c.emitOp(vm.OP_JMP_FALSE, 0)
+		c.emitOp(vm.OP_DUP, 0); c.emitOp(vm.OP_SYSCALL, 54) // next()
+		switch target := s.Target.(type) {
+		case *ast.Name: c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(target.Id))))
+		case *ast.Tuple:
+			for i, el := range target.Elts {
+				c.emitOp(vm.OP_DUP, 0); c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(i)}))
+				c.emitOp(vm.OP_SYSCALL, 30); c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(el.(*ast.Name).Id))))
 			}
+			c.emitOp(vm.OP_DROP, 0)
 		}
-
-		// Exit Scope
+		for _, stmt := range s.Body { if err := c.emitStmt(stmt); err != nil { return err } }
+		c.emitOp(vm.OP_JMP, ctx.startIP)
+		c.instructions[jumpEndIdx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
+		for _, idx := range ctx.breakJumps { c.instructions[idx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF) }
+		c.emitOp(vm.OP_DROP, 0); c.loops = c.loops[:len(c.loops)-1]
+	case *ast.Break:
+		ctx := c.loops[len(c.loops)-1]; ctx.breakJumps = append(ctx.breakJumps, len(c.instructions)); c.emitOp(vm.OP_JMP, 0)
+	case *ast.Continue: c.emitOp(vm.OP_JMP, c.loops[len(c.loops)-1].startIP)
+	case *ast.With:
+		call := s.Items[0].ContextExpr.(*ast.Call)
+		if err := c.emitExpr(call.Args[0]); err != nil { return err }
+		if err := c.emitExpr(call.Args[1]); err != nil { return err }
+		c.emitOp(vm.OP_ADDRESS, 0)
+		for _, stmt := range s.Body { if err := c.emitStmt(stmt); err != nil { return err } }
 		c.emitOp(vm.OP_EXIT_ADDR, 0)
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported statement type: %T", stmt)
+	case *ast.FunctionDef:
+		jmpIdx := len(c.instructions); c.emitOp(vm.OP_JMP, 0)
+		c.functions[string(s.Name)] = len(c.instructions)
+		oldL, oldN := c.locals, c.nextLocal
+		c.locals = make(map[string]int); c.nextLocal = len(s.Args.Args)
+		for i, arg := range s.Args.Args { c.locals[string(arg.Arg)] = i }
+		for _, stmt := range s.Body { if err := c.emitStmt(stmt); err != nil { return err } }
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeVoid})); c.emitOp(vm.OP_RET, 0)
+		c.locals, c.nextLocal = oldL, oldN
+		c.instructions[jmpIdx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
+	case *ast.Return:
+		if s.Value != nil { if err := c.emitExpr(s.Value); err != nil { return err } } else { c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeVoid})) }
+		c.emitOp(vm.OP_RET, 0)
 	}
+	return nil
 }
 
 func (c *Compiler) emitExpr(expr ast.Expr) error {
 	switch e := expr.(type) {
 	case *ast.Num:
 		s := fmt.Sprintf("%v", e.N)
-		i, err := strconv.ParseInt(s, 10, 64)
-		if err == nil {
-			val := value.Value{Type: value.TypeInt, Data: uint64(i)}
-			idx := c.addConstant(val)
-			c.emitOp(vm.OP_PUSH_C, idx)
-			return nil
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+			c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(i)}))
+		} else if f, err := strconv.ParseFloat(s, 64); err == nil {
+			c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeFloat, Data: math.Float64bits(f)}))
 		}
-		return fmt.Errorf("unsupported number literal: %v", e.N)
-
-	case *ast.Str:
-		valStr := string(e.S)
-		val := value.Value{Type: value.TypeString, Data: c.packNewString(valStr)}
-		idx := c.addConstant(val)
-		c.emitOp(vm.OP_PUSH_C, idx)
-		return nil
-
+	case *ast.Str: c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeString, Data: c.packNewString(string(e.S))}))
+	case *ast.NameConstant:
+		val := value.Value{Type: value.TypeVoid}
+		if e.Value == py.True { val = value.Value{Type: value.TypeBool, Data: 1} } else if e.Value == py.False { val = value.Value{Type: value.TypeBool, Data: 0} }
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(val))
 	case *ast.Name:
-		idx := c.getLocalIndex(string(e.Id))
-		c.emitOp(vm.OP_PUSH_L, uint32(idx))
-		return nil
-
+		name := string(e.Id)
+		if start, ok := c.functions[name]; ok {
+			c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeString, Data: c.packNewString(name)}))
+			_ = start // Unused but keep for symmetry
+		} else { c.emitOp(vm.OP_PUSH_L, uint32(c.getLocalIndex(name))) }
 	case *ast.BinOp:
-		if err := c.emitExpr(e.Left); err != nil {
-			return err
-		}
-		if err := c.emitExpr(e.Right); err != nil {
-			return err
-		}
+		c.emitExpr(e.Left); c.emitExpr(e.Right)
 		switch e.Op {
-		case ast.Add:
-			c.emitOp(vm.OP_ADD, 0)
-		case ast.Sub:
-			c.emitOp(vm.OP_SUB, 0)
-		case ast.Mult:
-			c.emitOp(vm.OP_MUL, 0)
-		case ast.Div:
-			c.emitOp(vm.OP_DIV, 0)
-		default:
-			return fmt.Errorf("unsupported binary operator: %v", e.Op)
+		case ast.Add: c.emitOp(vm.OP_ADD, 0)
+		case ast.Sub: c.emitOp(vm.OP_SUB, 0)
+		case ast.Mult: c.emitOp(vm.OP_MUL, 0)
+		case ast.Div: c.emitOp(vm.OP_DIV, 0)
+		case ast.Modulo: c.emitOp(vm.OP_MOD, 0)
+		case ast.Pow: c.emitOp(vm.OP_POW, 0)
 		}
-		return nil
-
+	case *ast.BoolOp:
+		for _, v := range e.Values { c.emitExpr(v) }
+		if e.Op == ast.And { c.emitOp(vm.OP_AND, 0) } else { c.emitOp(vm.OP_OR, 0) }
 	case *ast.Compare:
-		if len(e.Ops) != 1 {
-			return fmt.Errorf("only single comparison supported")
-		}
-		if err := c.emitExpr(e.Left); err != nil {
-			return err
-		}
-		if err := c.emitExpr(e.Comparators[0]); err != nil {
-			return err
-		}
+		c.emitExpr(e.Left); c.emitExpr(e.Comparators[0])
 		switch e.Ops[0] {
-		case ast.Eq:
-			c.emitOp(vm.OP_EQ, 0)
-		case ast.NotEq:
-			c.emitOp(vm.OP_NE, 0)
-		case ast.Gt:
-			c.emitOp(vm.OP_GT, 0)
-		case ast.Lt:
-			c.emitOp(vm.OP_LT, 0)
-		default:
-			return fmt.Errorf("unsupported comparison operator: %v", e.Ops[0])
+		case ast.Eq: c.emitOp(vm.OP_EQ, 0)
+		case ast.NotEq: c.emitOp(vm.OP_NE, 0)
+		case ast.Gt: c.emitOp(vm.OP_GT, 0)
+		case ast.Lt: c.emitOp(vm.OP_LT, 0)
+		case ast.GtE: c.emitOp(vm.OP_GTE, 0)
+		case ast.LtE: c.emitOp(vm.OP_LTE, 0)
+		case ast.In: c.emitOp(vm.OP_IN, 0)
+		case ast.NotIn: c.emitOp(vm.OP_NOT_IN, 0)
 		}
-		return nil
-
 	case *ast.Call:
-		nameTok, ok := e.Func.(*ast.Name)
-		if !ok {
-			return fmt.Errorf("only direct function calls supported")
-		}
-		name := string(nameTok.Id)
-
-		if sysIdx, ok := PythonBuiltins[name]; ok {
-			// Emit arguments
+		switch fn := e.Func.(type) {
+		case *ast.Name:
+			name := string(fn.Id)
+			if sysIdx, ok := PythonBuiltins[name]; ok {
+				for _, arg := range e.Args { c.emitExpr(arg) }
+				if name == "print" || name == "range" { c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(len(e.Args))})) }
+				c.emitOp(vm.OP_SYSCALL, sysIdx)
+				if name == "write_file" || name == "with_client" || name == "set_url" || name == "set_method" { c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeVoid})) }
+				return nil
+			}
+			if start, ok := c.functions[name]; ok {
+				for _, arg := range e.Args { c.emitExpr(arg) }
+				c.emitOp(vm.OP_CALL, (uint32(start)<<8)|(uint32(len(e.Args))&0xFF))
+				return nil
+			}
+		case *ast.Attribute:
+			if err := c.emitExpr(fn.Value); err != nil { return err }
 			for _, arg := range e.Args {
-				if err := c.emitExpr(arg); err != nil {
-					return err
-				}
+				if err := c.emitExpr(arg); err != nil { return err }
 			}
-			c.emitOp(vm.OP_SYSCALL, sysIdx)
-			
-			// Handle return values for built-ins
-			if name == "print" || name == "write_file" || name == "with_client" || name == "set_url" || name == "set_method" {
-				val := value.Value{Type: value.TypeVoid, Data: 0}
-				idx := c.addConstant(val)
-				c.emitOp(vm.OP_PUSH_C, idx)
-			}
-			// Others (fetch, format_string, is_empty, parse_json) leave result on stack.
+			c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeString, Data: c.packNewString(string(fn.Attr))}))
+			c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(len(e.Args))}))
+			c.emitOp(vm.OP_SYSCALL, 62)
 			return nil
 		}
-		return fmt.Errorf("unknown function: %s", name)
-
-	default:
-		return fmt.Errorf("unsupported expression type: %T", expr)
+	case *ast.UnaryOp:
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: 0}))
+		c.emitExpr(e.Operand); c.emitOp(vm.OP_SUB, 0)
+	case *ast.List:
+		for _, el := range e.Elts { c.emitExpr(el) }
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(len(e.Elts))}))
+		c.emitOp(vm.OP_SYSCALL, 29)
+	case *ast.ListComp:
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: 0}))
+		c.emitOp(vm.OP_SYSCALL, 29); return c.emitComprehension(e.Elt, e.Generators)
+	case *ast.GeneratorExp:
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: 0}))
+		c.emitOp(vm.OP_SYSCALL, 29); c.emitComprehension(e.Elt, e.Generators); c.emitOp(vm.OP_SYSCALL, 53)
+	case *ast.Tuple:
+		for _, el := range e.Elts { c.emitExpr(el) }
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(len(e.Elts))}))
+		c.emitOp(vm.OP_SYSCALL, 61)
+	case *ast.Dict:
+		c.emitOp(vm.OP_SYSCALL, 40)
+		for i := range e.Keys {
+			c.emitOp(vm.OP_DUP, 0); c.emitExpr(e.Keys[i]); c.emitExpr(e.Values[i]); c.emitOp(vm.OP_SYSCALL, 31)
+		}
+	case *ast.Attribute:
+		if err := c.emitExpr(e.Value); err != nil { return err }
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeString, Data: c.packNewString(string(e.Attr))}))
+		c.emitOp(vm.OP_SYSCALL, 4)
+		return nil
+	case *ast.Subscript:
+		c.emitExpr(e.Value)
+		switch sl := e.Slice.(type) {
+		case *ast.Index: c.emitExpr(sl.Value); c.emitOp(vm.OP_SYSCALL, 30)
+		case *ast.Slice:
+			if sl.Lower != nil { c.emitExpr(sl.Lower) } else { c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeVoid})) }
+			if sl.Upper != nil { c.emitExpr(sl.Upper) } else { c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeVoid})) }
+			if sl.Step != nil { c.emitExpr(sl.Step) } else { c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeVoid})) }
+			c.emitOp(vm.OP_SYSCALL, 57)
+		}
+	case *ast.Lambda:
+		name := fmt.Sprintf("__lambda_%d", len(c.functions))
+		jmp := len(c.instructions); c.emitOp(vm.OP_JMP, 0)
+		c.functions[name] = len(c.instructions)
+		oldL, oldN := c.locals, c.nextLocal
+		c.locals = make(map[string]int); c.nextLocal = len(e.Args.Args)
+		for i, a := range e.Args.Args { c.locals[string(a.Arg)] = i }
+		c.emitExpr(e.Body); c.emitOp(vm.OP_RET, 0)
+		c.locals, c.nextLocal = oldL, oldN
+		c.instructions[jmp] = (uint32(vm.OP_JMP) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
+		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeString, Data: c.packNewString(name)}))
 	}
+	return nil
+}
+
+func (c *Compiler) emitComprehension(elt ast.Expr, generators []ast.Comprehension) error {
+	gen := generators[0]; c.emitExpr(gen.Iter); c.emitOp(vm.OP_SYSCALL, 53)
+	start := uint32(len(c.instructions)); c.emitOp(vm.OP_SYSCALL, 60)
+	end := len(c.instructions); c.emitOp(vm.OP_JMP_FALSE, 0)
+	c.emitOp(vm.OP_DUP, 0); c.emitOp(vm.OP_SYSCALL, 54)
+	c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(gen.Target.(*ast.Name).Id))))
+	var ifs []int
+	for _, cond := range gen.Ifs { c.emitExpr(cond); ifs = append(ifs, len(c.instructions)); c.emitOp(vm.OP_JMP_FALSE, 0) }
+	c.emitOp(vm.OP_DUP, 1); c.emitExpr(elt)
+	c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeString, Data: c.packNewString("append")}))
+	c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: 1}))
+	c.emitOp(vm.OP_SYSCALL, 62); c.emitOp(vm.OP_DROP, 0)
+	for _, idx := range ifs { c.instructions[idx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF) }
+	c.emitOp(vm.OP_JMP, start)
+	c.instructions[end] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
+	c.emitOp(vm.OP_DROP, 0); return nil
 }

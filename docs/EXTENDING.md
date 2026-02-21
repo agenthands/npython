@@ -1,55 +1,48 @@
 # Extending nPython
 
-You can extend nPython by adding new host functions (syscalls) and custom security scopes.
+You can extend nPython by adding new built-in functions or security environments.
 
-## Adding a New Host Function
+## Adding a Host Function
 
-### 1. Implement the Go Function
-Host functions must match the `vm.HostFunction` signature: `func(*Machine) error`. They interact directly with the VM's stack.
+A Host Function is a Go function that interacts with the VM stack.
 
 ```go
-func MyCustomTool(m *vm.Machine) error {
-    // 1. Pop arguments
-    val := m.Pop()
+// Signature: func(m *vm.Machine) error
+func MyCustomFunc(m *vm.Machine) error {
+    // 1. Pop arguments (reverse order)
+    arg := m.Pop()
     
     // 2. Perform logic
-    fmt.Printf("Custom tool received: %v
-", val.Data)
+    res := arg.Int() * 2
     
-    // 3. Push result back
-    m.Push(value.Value{Type: value.TypeInt, Data: 1})
+    // 3. Push result
+    m.Push(value.Value{Type: value.TypeInt, Data: uint64(res)})
+    
     return nil
 }
+
+// Register it (index must match compiler expectation if built-in)
+machine.RegisterHostFunction("", MyCustomFunc)
 ```
 
-### 2. Register with the Machine
-Assign your function to a security scope (or use `""` for globally accessible logic).
+## Adding a Security Environment
 
-```go
-// Register returns a uint32 ID that the Emitter must use.
-m.RegisterHostFunction("MY-SCOPE", MyCustomTool)
-```
+To add a new protected capability (e.g., `DB-ENV`):
 
-### 3. Update the Compiler
-To make the new word available in nPython source code, you must add it to the `parser.StandardWords` map.
+1.  **Define the Scope Name:** e.g., "DB-ENV".
+2.  **Register Protected Functions:**
+    ```go
+    machine.RegisterHostFunction("DB-ENV", func(m *vm.Machine) error {
+        // This code only runs if "DB-ENV" scope is active
+        return nil
+    })
+    ```
+3.  **Update Gatekeeper:** Ensure your Gatekeeper validates tokens for "DB-ENV".
 
-```go
-// pkg/compiler/parser/parser.go
+## Extending the Compiler
 
-var StandardWords = map[string]OpSignature{
-    // ...
-    "MY-TOOL": {In: 1, Out: 1, RequiredScope: "MY-SCOPE"},
-}
-```
+To support new Python syntax:
 
-And update the `Emitter` to map the word to the correct host index:
-
-```go
-// pkg/compiler/emitter/emitter.go
-
-case "MY-TOOL":
-    e.emitOp(vm.OP_SYSCALL, 3) // Assuming it's the 4th registered function
-```
-
-## Creating Custom Sandboxes
-Follow the pattern in `pkg/stdlib/fs.go` or `pkg/stdlib/http.go` to create isolated environments with root jailing or validation logic.
+1.  **Update `pkg/compiler/python/compiler.go`**: Add a case to `emitStmt` or `emitExpr`.
+2.  **Map to Opcodes**: Translate the AST node to existing VM opcodes or syscalls.
+3.  **Update `PythonBuiltins`**: If adding a new built-in function, add it to the map with its HostRegistry index.

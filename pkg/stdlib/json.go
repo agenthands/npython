@@ -19,7 +19,7 @@ func ParseJSON(m *vm.Machine) error {
 	}
 
 	m.Push(value.Value{
-		Type:   value.TypeMap,
+		Type:   value.TypeDict,
 		Opaque: data,
 	})
 	return nil
@@ -54,6 +54,10 @@ func ParseJSONKey(m *vm.Machine) error {
 }
 
 func pushConverted(m *vm.Machine, val any) error {
+	if v, ok := val.(value.Value); ok {
+		m.Push(v)
+		return nil
+	}
 	switch v := val.(type) {
 	case string:
 		offset := uint32(len(m.Arena))
@@ -68,6 +72,19 @@ func pushConverted(m *vm.Machine, val any) error {
 			b = 1
 		}
 		m.Push(value.Value{Type: value.TypeBool, Data: b})
+	case map[string]any:
+		m.Push(value.Value{Type: value.TypeDict, Opaque: v})
+	case []any:
+		results := make([]value.Value, len(v))
+		for i, item := range v {
+			if err := pushConverted(m, item); err != nil { return err }
+			results[i] = m.Pop()
+		}
+		ptr := new([]value.Value)
+		*ptr = results
+		m.Push(value.Value{Type: value.TypeList, Opaque: ptr})
+	case nil:
+		m.Push(value.Value{Type: value.TypeVoid})
 	default:
 		s := fmt.Sprintf("%v", v)
 		offset := uint32(len(m.Arena))
@@ -85,8 +102,8 @@ func GetField(m *vm.Machine) error {
 	
 	key := value.UnpackString(keyVal.Data, m.Arena)
 	key = strings.Trim(key, "\"") // Handle LLM quotes
-	if mapVal.Type != value.TypeMap {
-		return fmt.Errorf("expected Map, got %v", mapVal.Type)
+	if mapVal.Type != value.TypeDict {
+		return fmt.Errorf("expected Dict, got %v", mapVal.Type)
 	}
 
 	data := mapVal.Opaque.(map[string]any)

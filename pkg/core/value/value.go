@@ -1,6 +1,8 @@
 package value
 
 import (
+	"fmt"
+	"math"
 	"strings"
 	"unsafe"
 )
@@ -12,8 +14,14 @@ const (
 	TypeVoid Type = iota
 	TypeInt
 	TypeBool
+	TypeFloat
 	TypeString
-	TypeMap // For JSON objects
+	TypeBytes
+	TypeDict
+	TypeList
+	TypeTuple
+	TypeSet
+	TypeIterator
 )
 
 // Value is a tagged union.
@@ -42,6 +50,9 @@ func UnpackString(data uint64, arena []byte) string {
 	}
 
 	s := unsafe.String(&arena[offset], length)
+	if !strings.Contains(s, "\\") {
+		return s
+	}
 	s = strings.ReplaceAll(s, "\\\"", "\"")
 	s = strings.ReplaceAll(s, "\\n", "\n")
 	s = strings.ReplaceAll(s, "\\t", "\t")
@@ -59,4 +70,46 @@ func (v Value) Int() int64 {
 func (v *Value) SetInt(i int64) {
 	v.Type = TypeInt
 	v.Data = uint64(i)
+}
+
+// Format returns a string representation of the value.
+func (v Value) Format(arena []byte) string {
+	switch v.Type {
+	case TypeString:
+		return UnpackString(v.Data, arena)
+	case TypeInt:
+		return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%d", int64(v.Data)), ".0"), ".00")
+	case TypeFloat:
+		return fmt.Sprintf("%g", math.Float64frombits(v.Data))
+	case TypeBool:
+		if v.Data != 0 {
+			return "True"
+		}
+		return "False"
+	case TypeList, TypeTuple:
+		var list []Value
+		if v.Type == TypeList {
+			if lp, ok := v.Opaque.(*[]Value); ok {
+				list = *lp
+			}
+		} else {
+			if l, ok := v.Opaque.([]Value); ok {
+				list = l
+			}
+		}
+		parts := make([]string, len(list))
+		for i, el := range list {
+			parts[i] = el.Format(arena)
+		}
+		if v.Type == TypeList {
+			return "[" + strings.Join(parts, ", ") + "]"
+		}
+		return "(" + strings.Join(parts, ", ") + ")"
+	case TypeDict:
+		return fmt.Sprintf("%v", v.Opaque)
+	case TypeVoid:
+		return "None"
+	default:
+		return fmt.Sprintf("%v", v.Data)
+	}
 }

@@ -34,7 +34,6 @@ if res == "MOCK_BODY":
 		Arena:      bytecode.Arena,
 		Gatekeeper: &MockGate{},
 	}
-	machine.Reset()
 
 	// Register Host Functions (matching PythonBuiltins indices)
 	// 0: write_file
@@ -98,7 +97,6 @@ else:
 		Constants: bytecode.Constants,
 		Arena:     bytecode.Arena,
 	}
-	machine.Reset()
 
 	// Register Host Functions (matching PythonBuiltins indices)
 	machine.HostRegistry = make([]vm.HostFunctionEntry, 11)
@@ -137,7 +135,6 @@ with scope("HTTP-ENV", "valid-token"):
 		Arena:      bytecode.Arena,
 		Gatekeeper: &MockGate{},
 	}
-	machine.Reset()
 
 	// Register Host Functions
 	httpSandbox := stdlib.NewHTTPSandbox([]string{"example.com"})
@@ -153,7 +150,7 @@ with scope("HTTP-ENV", "valid-token"):
 			"status": int64(201),
 			"body":   value.Value{Type: value.TypeString},
 		}
-		m.Push(value.Value{Type: value.TypeMap, Opaque: respMap})
+		m.Push(value.Value{Type: value.TypeDict, Opaque: respMap})
 		return nil
 	}}
 	machine.HostRegistry[6] = vm.HostFunctionEntry{Fn: httpSandbox.CheckStatus}

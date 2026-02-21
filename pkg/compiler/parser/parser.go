@@ -363,9 +363,8 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 	case lexer.KindIdentifier:
 		tok := p.curTok
 		literal := p.src[tok.Offset : tok.Offset+tok.Length]
-		upperLiteral := bytes.ToUpper(literal)
 
-		if sig, ok := isStandardWord(upperLiteral); ok {
+		if sig, ok := isStandardWord(literal); ok {
 			p.depth -= sig.In
 			if p.depth < 0 {
 				return nil, fmt.Errorf("Stack Underflow at line %d: word '%s' requires %d arguments", tok.Line, string(literal), sig.In)
@@ -373,7 +372,8 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 			p.depth += sig.Out
 			
 			// YIELD is special: it satisfies the depth check by returning the result
-			if string(upperLiteral) == "YIELD" {
+			// We check for YIELD by value since it's a small constant check
+			if len(literal) == 5 && (literal[0] == 'Y' || literal[0] == 'y') && (literal[1] == 'I' || literal[1] == 'i') {
 				p.depth = 0
 			}
 			
@@ -383,7 +383,7 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 					return nil, fmt.Errorf("Security Violation at line %d: Word '%s' requires scope '%s'. Active scopes: %v", tok.Line, string(literal), sig.RequiredScope, p.scopes)
 				}
 			}
-		} else if sig, isFunc := p.functions[string(upperLiteral)]; isFunc {
+		} else if sig, isFunc := p.functions[string(literal)]; isFunc {
 			p.depth -= sig.ArgCount
 			if p.depth < 0 {
 				return nil, fmt.Errorf("Stack Underflow at line %d: function '%s' requires %d arguments", tok.Line, string(literal), sig.ArgCount)
@@ -403,6 +403,28 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 	}
 }
 
+func findStandardWord(lit []byte) (OpSignature, bool) {
+	for name, sig := range StandardWords {
+		if len(name) == len(lit) {
+			match := true
+			for i := 0; i < len(name); i++ {
+				c := lit[i]
+				if c >= 'a' && c <= 'z' {
+					c -= 32
+				}
+				if c != name[i] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return sig, true
+			}
+		}
+	}
+	return OpSignature{}, false
+}
+
 func (p *Parser) isTerm(k lexer.Kind) bool {
 	return k == lexer.KindIdentifier || k == lexer.KindNumber || k == lexer.KindString || k == lexer.KindInto
 }
@@ -418,8 +440,21 @@ func (p *Parser) hasScope(name string) bool {
 
 func isStandardWord(lit []byte) (OpSignature, bool) {
 	for name, sig := range StandardWords {
-		if bytes.Equal(lit, []byte(name)) {
-			return sig, true
+		if len(name) == len(lit) {
+			match := true
+			for i := 0; i < len(name); i++ {
+				c1 := lit[i]
+				if c1 >= 'a' && c1 <= 'z' {
+					c1 -= 32
+				}
+				if c1 != name[i] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return sig, true
+			}
 		}
 	}
 	return OpSignature{}, false
