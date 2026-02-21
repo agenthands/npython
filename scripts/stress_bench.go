@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -12,16 +14,18 @@ import (
 )
 
 type Stats struct {
-	Pass         int
-	Fail         int
-	TokensTotal  int
+	Pass        int
+	Fail        int
+	TokensTotal int
 }
 
 func main() {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	defer client.Close()
 
 	model := client.GenerativeModel("gemini-2.0-flash")
@@ -74,7 +78,9 @@ func runRawTrial(ctx context.Context, model *genai.GenerativeModel, task, env, s
 
 	prompt := fmt.Sprintf("Environment: %s\nTask: %s\nOutput code ONLY inside a code block.", env, task)
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	code := extractCode(resp)
 	s.TokensTotal += len(strings.Fields(code))
@@ -113,7 +119,9 @@ func validateP(code string, s *Stats) {
 }
 
 func extractCode(resp *genai.GenerateContentResponse) string {
-	if resp == nil || len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 { return "" }
+	if resp == nil || len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+		return ""
+	}
 	t := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
 	if strings.Contains(t, "```python") {
 		return strings.Split(strings.Split(t, "```python")[1], "```")[0]

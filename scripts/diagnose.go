@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -15,7 +17,9 @@ func main() {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	defer client.Close()
 
 	model := client.GenerativeModel("gemini-2.0-flash")
@@ -44,12 +48,12 @@ func main() {
 		for i := 0; i < iterations; i++ {
 			resp, _ := model.GenerateContent(ctx, genai.Text(task))
 			code := extractCode(resp)
-			
-					tmp := "diag_tmp.py"
-					os.WriteFile(tmp, []byte(code), 0644)
-					cmd := exec.Command("./npython", "run", tmp, "-gas", "5000000")
-					out, err := cmd.CombinedOutput()
-					os.Remove(tmp)
+
+			tmp := "diag_tmp.py"
+			os.WriteFile(tmp, []byte(code), 0644)
+			cmd := exec.Command("./npython", "run", tmp, "-gas", "5000000")
+			out, err := cmd.CombinedOutput()
+			os.Remove(tmp)
 			if err != nil {
 				logFile.WriteString(fmt.Sprintf("TASK: %s\nCODE:\n%s\nERROR: %s\n-------------------\n", task, code, string(out)))
 			}
@@ -59,7 +63,9 @@ func main() {
 }
 
 func extractCode(resp *genai.GenerateContentResponse) string {
-	if resp == nil || len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 { return "" }
+	if resp == nil || len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+		return ""
+	}
 	t := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
 	if strings.Contains(t, "```python") {
 		return strings.Split(strings.Split(t, "```python")[1], "```")[0]

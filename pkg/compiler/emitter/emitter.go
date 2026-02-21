@@ -3,6 +3,7 @@ package emitter
 import (
 	"strconv"
 	"strings"
+
 	"github.com/agenthands/npython/pkg/compiler/ast"
 	"github.com/agenthands/npython/pkg/compiler/lexer"
 	"github.com/agenthands/npython/pkg/compiler/parser"
@@ -34,7 +35,7 @@ func (e *Emitter) Emit(prog *ast.Program) (*vm.Bytecode, error) {
 	e.constants = e.constants[:0]
 	e.arena = e.arena[:0]
 	e.stringOffsets = make(map[string]uint32)
-	
+
 	if prog != nil {
 		for _, node := range prog.Nodes {
 			if err := e.emitNode(node); err != nil {
@@ -63,17 +64,17 @@ func (e *Emitter) emitNode(node ast.Node) error {
 	case *ast.Definition:
 		// 1. Record function entry
 		name := string(e.src[n.Name.Offset : n.Name.Offset+n.Name.Length])
-		
+
 		// 2. Skip over function body during main execution
 		jmpIdx := len(e.instructions)
 		e.emitOp(vm.OP_JMP, 0)
-		
+
 		e.functions[name] = len(e.instructions)
-		
+
 		// 3. Reset locals for function scope
 		oldLocals := e.locals
 		e.locals = make(map[string]int)
-		
+
 		// Map parameters to locals 0, 1, 2...
 		for i, argTok := range n.Args {
 			argName := string(e.src[argTok.Offset : argTok.Offset+argTok.Length])
@@ -94,9 +95,9 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				return err
 			}
 		}
-		
+
 		e.emitOp(vm.OP_RET, 0)
-		
+
 		// 5. Restore locals and backpatch jump
 		e.locals = oldLocals
 		e.instructions[jmpIdx] = (uint32(vm.OP_JMP) << 24) | (uint32(len(e.instructions)) & 0x00FFFFFF)
@@ -108,7 +109,7 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				return err
 			}
 		}
-		
+
 		// 2. Map and Pop into target local
 		name := string(e.src[n.Target.Offset : n.Target.Offset+n.Target.Length])
 		upperName := strings.ToUpper(name)
@@ -148,15 +149,15 @@ func (e *Emitter) emitNode(node ast.Node) error {
 	case *ast.Identifier:
 		name := string(e.src[n.Token.Offset : n.Token.Offset+n.Token.Length])
 		upperName := strings.ToUpper(name)
-		
+
 		// Check if it's a standard word
 		if sig, ok := parser.StandardWords[upperName]; ok {
 			// This is an OPERATION, not a data push.
-			if sig.RequiredScope != "" || 
-				upperName == "PRINT" || 
-				upperName == "PARSE-JSON" || 
-				upperName == "PARSE-JSON-KEY" || 
-				upperName == "PARSE-AND-GET" || 
+			if sig.RequiredScope != "" ||
+				upperName == "PRINT" ||
+				upperName == "PARSE-JSON" ||
+				upperName == "PARSE-JSON-KEY" ||
+				upperName == "PARSE-AND-GET" ||
 				upperName == "GET-FIELD" ||
 				upperName == "GET" ||
 				upperName == "GET-KEY" ||
@@ -169,7 +170,7 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				upperName == "WITH-CLIENT" ||
 				upperName == "SET-URL" ||
 				upperName == "SET-METHOD" {
-				
+
 				var hostIdx uint32
 				switch upperName {
 				case "WRITE-FILE":
@@ -203,6 +204,10 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				default:
 					hostIdx = 100
 				}
+				if upperName == "PRINT" {
+					constIdx := e.addConstant(value.Value{Type: value.TypeInt, Data: 1})
+					e.emitOp(vm.OP_PUSH_C, uint32(constIdx))
+				}
 				e.emitOp(vm.OP_SYSCALL, hostIdx)
 			} else if upperName == "EXIT" || upperName == "YIELD" {
 				e.emitOp(vm.OP_RET, 0)
@@ -210,7 +215,7 @@ func (e *Emitter) emitNode(node ast.Node) error {
 				e.emitStandardWord(upperName)
 			}
 		} else if startIP, isFunc := e.functions[upperName]; isFunc {
-			e.emitOp(vm.OP_CALL, uint32(startIP))
+			e.emitOp(vm.OP_CALL, uint32(startIP)<<8)
 		} else {
 			// Local lookup
 			idx, ok := e.locals[upperName]
@@ -306,15 +311,14 @@ func (e *Emitter) emitNode(node ast.Node) error {
 		}
 		// Push Scope Name and Token to stack, then OP_ADDRESS
 		envName := string(e.src[n.Env.Offset : n.Env.Offset+n.Env.Length])
-						capToken := string(e.src[n.CapToken.Offset : n.CapToken.Offset+n.CapToken.Length])
-						if n.CapToken.Kind == lexer.KindString {
-							// Strip quotes if it was a string literal
-							capToken = capToken[1 : len(capToken)-1]
-						}
-				
-						// Add to constant pool and Arena
-				
-		
+		capToken := string(e.src[n.CapToken.Offset : n.CapToken.Offset+n.CapToken.Length])
+		if n.CapToken.Kind == lexer.KindString {
+			// Strip quotes if it was a string literal
+			capToken = capToken[1 : len(capToken)-1]
+		}
+
+		// Add to constant pool and Arena
+
 		scopeIdx := e.addConstant(value.Value{Type: value.TypeString, Data: e.packNewString(envName)})
 		tokenIdx := e.addConstant(value.Value{Type: value.TypeString, Data: e.packNewString(capToken)})
 

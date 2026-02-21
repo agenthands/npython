@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -26,7 +28,9 @@ func main() {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	defer client.Close()
 
 	model := client.GenerativeModel("gemini-2.0-flash")
@@ -49,7 +53,7 @@ func main() {
 
 	for i, task := range tasks {
 		fmt.Printf("\nTASK %d: %s\n", i+1, task)
-		
+
 		pyRes := runTrial(ctx, model, task, "Standard Python", "Write standard Python 3 code. Use requests for HTTP. Assume requests is installed.", "")
 		npyRes := runTrial(ctx, model, task, "nPython", "Write nPython code (secure subset). Use 'with scope(name, token)' for I/O. Tools: fetch(url), write_file(content, path), parse_json(str).", fullSystemPrompt)
 
@@ -67,16 +71,16 @@ func runTrial(ctx context.Context, model *genai.GenerativeModel, task, env, inst
 	}
 
 	prompt := fmt.Sprintf("Environment: %s\nConstraint: %s\nTask: %s\n\nOutput code ONLY inside a code block.", env, instruction, task)
-	
+
 	start := time.Now()
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
 		return Result{Task: task, Environment: env, Status: "GEN_FAIL", Error: err.Error()}
 	}
-	
+
 	code := extractCode(resp)
 	tokens := countTokens(code)
-	
+
 	var status, errMsg string
 	if env == "nPython" {
 		status, errMsg = validateNPython(code)
@@ -133,7 +137,9 @@ func countTokens(s string) int {
 }
 
 func extractCode(resp *genai.GenerateContentResponse) string {
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 { return "" }
+	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+		return ""
+	}
 	text := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
 	if strings.Contains(text, "```python") {
 		return strings.Split(strings.Split(text, "```python")[1], "```")[0]
@@ -146,13 +152,15 @@ func printComparison(py, npy Result) {
 	fmt.Println("-------------------------------------------------------------------------")
 	fmt.Printf("%-20s | %-15s | %-15s | %-10s\n", "Status", py.Status, npy.Status, "")
 	fmt.Printf("%-20s | %-15d | %-15d | %-10.1f%%\n", "Code Complexity (Tok)", py.Tokens, npy.Tokens, 100.0-(float64(npy.Tokens)/float64(py.Tokens)*100.0))
-	
+
 	if npy.Status != "PASS" && npy.Code != "" {
 		fmt.Printf("nPython Code:\n%s\n", npy.Code)
 	}
 	if npy.Error != "" {
 		shortErr := npy.Error
-		if len(shortErr) > 120 { shortErr = shortErr[:117] + "..." }
+		if len(shortErr) > 120 {
+			shortErr = shortErr[:117] + "..."
+		}
 		fmt.Printf("nPython Info: %s\n", strings.ReplaceAll(shortErr, "\n", " "))
 	}
 }

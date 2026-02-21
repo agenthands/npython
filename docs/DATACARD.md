@@ -29,7 +29,8 @@ def process_logs(url, token):
     with scope("HTTP-ENV", token):
         data = fetch(url)
     
-    logs = parse_json(data)
+    parsed = parse_json(data)
+    logs = parsed["logs"] # Always traverse exact json structure
     errors = filter(lambda x: x["level"] == "error", logs)
     
     if len(errors) > 0:

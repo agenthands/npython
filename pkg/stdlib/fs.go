@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrPathEscape     = errors.New("stdlib/fs: path escape violation")
-	ErrFileTooLarge   = errors.New("stdlib/fs: file size limit exceeded")
+	ErrPathEscape       = errors.New("stdlib/fs: path escape violation")
+	ErrFileTooLarge     = errors.New("stdlib/fs: file size limit exceeded")
 	ErrPermissionDenied = errors.New("stdlib/fs: permission denied")
 )
 

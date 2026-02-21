@@ -4,9 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/agenthands/npython/pkg/core/value"
 	"github.com/agenthands/npython/pkg/stdlib"
 	"github.com/agenthands/npython/pkg/vm"
-	"github.com/agenthands/npython/pkg/core/value"
 )
 
 func TestFSSandbox(t *testing.T) {
@@ -17,15 +18,17 @@ func TestFSSandbox(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	sandbox := stdlib.NewFSSandbox(tempDir, 1024)
-	m := &vm.Machine{}
-	
+	m := vm.GetMachine()
+	defer vm.PutMachine(m)
+	m.Reset()
+
 	// Setup Arena for Write
 	pathStr := "test.txt"
 	contentStr := "hello npython"
-	
+
 	m.Arena = append(m.Arena, []byte(contentStr)...)
 	contentData := value.PackString(0, uint32(len(contentStr)))
-	
+
 	pathOffset := uint32(len(m.Arena))
 	m.Arena = append(m.Arena, []byte(pathStr)...)
 	pathData := value.PackString(pathOffset, uint32(len(pathStr)))
@@ -33,7 +36,7 @@ func TestFSSandbox(t *testing.T) {
 	// Test Write ( content path -- )
 	m.Push(value.Value{Type: value.TypeString, Data: contentData})
 	m.Push(value.Value{Type: value.TypeString, Data: pathData})
-	
+
 	err = sandbox.WriteFile(m)
 	if err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
@@ -47,7 +50,7 @@ func TestFSSandbox(t *testing.T) {
 	// Test Read ( path -- content )
 	m.Reset()
 	m.Arena = m.Arena[:0] // Clear arena
-	
+
 	m.Arena = append(m.Arena, []byte(pathStr)...)
 	pathData = value.PackString(0, uint32(len(pathStr)))
 	m.Push(value.Value{Type: value.TypeString, Data: pathData})
@@ -67,17 +70,17 @@ func TestFSSandbox(t *testing.T) {
 func TestFSSandboxJailing(t *testing.T) {
 	tempDir, _ := os.MkdirTemp("", "npython-fs-jail-test")
 	defer os.RemoveAll(tempDir)
-	
+
 	sandbox := stdlib.NewFSSandbox(tempDir, 1024)
 	m := &vm.Machine{}
 
 	// Attempt path escape ( "../../etc/passwd" )
 	pathStr := "../../etc/passwd"
 	contentStr := "malicious content"
-	
+
 	m.Arena = append(m.Arena, []byte(contentStr)...)
 	contentData := value.PackString(0, uint32(len(contentStr)))
-	
+
 	pathOffset := uint32(len(m.Arena))
 	m.Arena = append(m.Arena, []byte(pathStr)...)
 	pathData := value.PackString(pathOffset, uint32(len(pathStr)))

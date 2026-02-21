@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -33,7 +35,7 @@ func main() {
 	// Load System Prompt & Datacard
 	prompt, _ := os.ReadFile("docs/PROMPT.md")
 	datacard, _ := os.ReadFile("docs/DATACARD.md")
-	
+
 	fullSystemPrompt := string(prompt) + "\n\n" + string(datacard)
 	model.SystemInstruction = &genai.Content{
 		Parts: []genai.Part{genai.Text(fullSystemPrompt)},
@@ -53,30 +55,30 @@ func main() {
 	for _, task := range tasks {
 		fmt.Printf("Task: %s\n", task)
 		start := time.Now()
-		
+
 		resp, err := model.GenerateContent(ctx, genai.Text(task))
 		if err != nil {
 			fmt.Printf("  GenAI Error: %v\n", err)
 			continue
 		}
-		
+
 		genDuration := time.Since(start)
 		code := extractCode(resp)
 		fmt.Printf("  Code:\n%s\n", code)
-		
+
 		// Save and Run
 		os.WriteFile("bench_temp.py", []byte(code), 0644)
-		
+
 		runStart := time.Now()
 		cmd := exec.Command("./npython", "run", "bench_temp.py")
 		out, err := cmd.CombinedOutput()
 		runDuration := time.Since(runStart)
-		
+
 		status := "PASS"
 		if err != nil {
 			status = "FAIL"
 		}
-		
+
 		fmt.Printf("  Status: %s\n", status)
 		fmt.Printf("  Gen Time: %v\n", genDuration)
 		fmt.Printf("  Run Time: %v\n", runDuration)
@@ -96,7 +98,7 @@ func extractCode(resp *genai.GenerateContentResponse) string {
 		return ""
 	}
 	text := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
-	
+
 	if strings.Contains(text, "```python") {
 		return strings.Split(strings.Split(text, "```python")[1], "```")[0]
 	}

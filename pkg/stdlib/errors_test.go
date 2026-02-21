@@ -2,8 +2,9 @@ package stdlib
 
 import (
 	"testing"
-	"github.com/agenthands/npython/pkg/vm"
+
 	"github.com/agenthands/npython/pkg/core/value"
+	"github.com/agenthands/npython/pkg/vm"
 )
 
 func TestBuiltinErrors(t *testing.T) {
@@ -16,15 +17,15 @@ func TestBuiltinErrors(t *testing.T) {
 		args []value.Value
 	}{
 		{"LenErr", Len, []value.Value{{Type: value.TypeInt}}},
-		{"RangeErr", Range, []value.Value{{Type: value.TypeString}}},
+		{"RangeErr", Range, []value.Value{{Type: value.TypeString}, {Type: value.TypeInt, Data: 1}}},
 		{"SumErr", Sum, []value.Value{{Type: value.TypeInt}}},
 		{"MaxErr", Max, []value.Value{{Type: value.TypeInt}}},
-		{"MaxEmpty", Max, []value.Value{{Type: value.TypeList, Opaque: []value.Value{}}}},
+		{"MaxEmpty", Max, []value.Value{{Type: value.TypeList, Opaque: &[]value.Value{}}}},
 		{"MinErr", Min, []value.Value{{Type: value.TypeInt}}},
-		{"MinEmpty", Min, []value.Value{{Type: value.TypeList, Opaque: []value.Value{}}}},
+		{"MinEmpty", Min, []value.Value{{Type: value.TypeList, Opaque: &[]value.Value{}}}},
 		{"MapErr1", Map, []value.Value{{Type: value.TypeInt}, {Type: value.TypeInt}}},
 		{"MapErr2", Map, []value.Value{{Type: value.TypeString}, {Type: value.TypeInt}}},
-		{"MapErr3", Map, []value.Value{{Type: value.TypeString, Data: 0}, {Type: value.TypeList}}}, // Unknown func
+		{"MapErr3", Map, []value.Value{{Type: value.TypeString, Data: 0}, {Type: value.TypeList, Opaque: &[]value.Value{}}}}, // Unknown func
 		{"AbsErr", Abs, []value.Value{{Type: value.TypeString}}},
 		{"IntErr", Int, []value.Value{{Type: value.TypeVoid}}},
 		{"FloatErr", Float, []value.Value{{Type: value.TypeVoid}}},
@@ -32,8 +33,8 @@ func TestBuiltinErrors(t *testing.T) {
 		{"FilterErr1", Filter, []value.Value{{Type: value.TypeInt}, {Type: value.TypeInt}}},
 		{"FilterErr2", Filter, []value.Value{{Type: value.TypeString}, {Type: value.TypeInt}}},
 		{"PowErr", Pow, []value.Value{{Type: value.TypeString}, {Type: value.TypeInt}}},
-		{"GetItemErr1", GetItem, []value.Value{{Type: value.TypeList}, {Type: value.TypeString}}},
-		{"GetItemErr2", GetItem, []value.Value{{Type: value.TypeList, Opaque: []value.Value{}}, {Type: value.TypeInt, Data: 0}}},
+		{"GetItemErr1", GetItem, []value.Value{{Type: value.TypeList, Opaque: &[]value.Value{}}, {Type: value.TypeString}}},
+		{"GetItemErr2", GetItem, []value.Value{{Type: value.TypeList, Opaque: &[]value.Value{}}, {Type: value.TypeInt, Data: 0}}},
 		{"AllErr", All, []value.Value{{Type: value.TypeInt}}},
 		{"AnyErr", Any, []value.Value{{Type: value.TypeInt}}},
 		{"BinErr", Bin, []value.Value{{Type: value.TypeString}}},
@@ -49,7 +50,7 @@ func TestBuiltinErrors(t *testing.T) {
 		{"EnumerateErr", Enumerate, []value.Value{{Type: value.TypeInt}}},
 		{"IterErr", Iter, []value.Value{{Type: value.TypeInt}}},
 		{"NextErr", Next, []value.Value{{Type: value.TypeInt}}},
-		{"NextEmpty", Next, []value.Value{{Type: value.TypeIterator, Opaque: &iteratorState{list: nil, index: 0}}}},
+		{"NextEmpty", Next, []value.Value{{Type: value.TypeIterator, Opaque: &iteratorState{listPtr: &[]value.Value{}, index: 0}}}},
 		{"ParseJSONErr", ParseJSON, []value.Value{{Type: value.TypeString, Data: 0}}}, // Needs invalid JSON in arena
 		{"GetFieldErr", GetField, []value.Value{{Type: value.TypeInt}, {Type: value.TypeString}}},
 		{"CheckStatusErr", func(m *vm.Machine) error { sandbox := NewHTTPSandbox(nil); return sandbox.CheckStatus(m) }, []value.Value{{Type: value.TypeInt}}},
@@ -122,4 +123,3 @@ func TestBuiltinErrors(t *testing.T) {
 		})
 	}
 }
-

@@ -2,10 +2,11 @@ package main_test
 
 import (
 	"testing"
+
 	"github.com/agenthands/npython/pkg/compiler/python"
-	"github.com/agenthands/npython/pkg/vm"
 	"github.com/agenthands/npython/pkg/core/value"
 	"github.com/agenthands/npython/pkg/stdlib"
+	"github.com/agenthands/npython/pkg/vm"
 )
 
 // TestComprehensive checks edge cases and complex logic in the nPython subset.
@@ -102,8 +103,12 @@ if a != b:
     res2 = 1
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
-				if m.Frames[0].Locals[3].Int() != 1 { t.Errorf("Expected res1 = 1") }
-				if m.Frames[0].Locals[4].Int() != 1 { t.Errorf("Expected res2 = 1") }
+				if m.Frames[0].Locals[3].Int() != 1 {
+					t.Errorf("Expected res1 = 1")
+				}
+				if m.Frames[0].Locals[4].Int() != 1 {
+					t.Errorf("Expected res2 = 1")
+				}
 			},
 		},
 		{
@@ -118,19 +123,29 @@ sl = len("hello")
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
 				lVal := m.Frames[0].Locals[1].Int()
-				if lVal != 5 { t.Errorf("Expected len(range(5)) = 5, got %d", lVal) }
-				
+				if lVal != 5 {
+					t.Errorf("Expected len(range(5)) = 5, got %d", lVal)
+				}
+
 				sVal := m.Frames[0].Locals[2].Int()
-				if sVal != 10 { t.Errorf("Expected sum(range(5)) = 10, got %d", sVal) }
-				
+				if sVal != 10 {
+					t.Errorf("Expected sum(range(5)) = 10, got %d", sVal)
+				}
+
 				m1Val := m.Frames[0].Locals[3].Int()
-				if m1Val != 4 { t.Errorf("Expected max(range(5)) = 4, got %d", m1Val) }
-				
+				if m1Val != 4 {
+					t.Errorf("Expected max(range(5)) = 4, got %d", m1Val)
+				}
+
 				m2Val := m.Frames[0].Locals[4].Int()
-				if m2Val != 0 { t.Errorf("Expected min(range(5)) = 0, got %d", m2Val) }
-				
+				if m2Val != 0 {
+					t.Errorf("Expected min(range(5)) = 0, got %d", m2Val)
+				}
+
 				slVal := m.Frames[0].Locals[5].Int()
-				if slVal != 5 { t.Errorf("Expected len('hello') = 5, got %d", slVal) }
+				if slVal != 5 {
+					t.Errorf("Expected len('hello') = 5, got %d", slVal)
+				}
 			},
 		},
 		{
@@ -162,17 +177,29 @@ s2 = str(b1)
 i1 = int("456")
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
-				if m.Frames[0].Locals[1].Int() != 10 { t.Errorf("abs(-10) failed") }
-				if m.Frames[0].Locals[2].Data != 1 { t.Errorf("bool(1) failed") }
-				if m.Frames[0].Locals[3].Data != 0 { t.Errorf("bool(0) failed") }
-				
+				if m.Frames[0].Locals[1].Int() != 10 {
+					t.Errorf("abs(-10) failed")
+				}
+				if m.Frames[0].Locals[2].Data != 1 {
+					t.Errorf("bool(1) failed")
+				}
+				if m.Frames[0].Locals[3].Data != 0 {
+					t.Errorf("bool(0) failed")
+				}
+
 				s1Val := m.Frames[0].Locals[4]
-				if value.UnpackString(s1Val.Data, m.Arena) != "123" { t.Errorf("str(123) failed") }
-				
+				if value.UnpackString(s1Val.Data, m.Arena) != "123" {
+					t.Errorf("str(123) failed")
+				}
+
 				s2Val := m.Frames[0].Locals[5]
-				if value.UnpackString(s2Val.Data, m.Arena) != "true" { t.Errorf("str(true) failed") }
-				
-				if m.Frames[0].Locals[6].Int() != 456 { t.Errorf("int('456') failed") }
+				if value.UnpackString(s2Val.Data, m.Arena) != "True" {
+					t.Errorf("str(True) failed")
+				}
+
+				if m.Frames[0].Locals[6].Int() != 456 {
+					t.Errorf("int('456') failed")
+				}
 			},
 		},
 		{
@@ -190,10 +217,14 @@ p = pow(2, 3)
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
 				lVal := m.Frames[0].Locals[2].Int()
-				if lVal != 3 { t.Errorf("Expected 3 evens, got %d", lVal) }
-				
+				if lVal != 3 {
+					t.Errorf("Expected 3 evens, got %d", lVal)
+				}
+
 				pVal := m.Frames[0].Locals[3].Int()
-				if pVal != 8 { t.Errorf("Expected pow(2, 3) = 8, got %d", pVal) }
+				if pVal != 8 {
+					t.Errorf("Expected pow(2, 3) = 8, got %d", pVal)
+				}
 			},
 		},
 		{
@@ -206,9 +237,15 @@ a2 = any(list1) # true
 a3 = all(list2) # true
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
-				if m.Frames[0].Locals[2].Data != 0 { t.Errorf("all(range(3)) should be false") }
-				if m.Frames[0].Locals[3].Data != 1 { t.Errorf("any(range(3)) should be true") }
-				if m.Frames[0].Locals[4].Data != 1 { t.Errorf("all([1,2,3]) should be true") }
+				if m.Frames[0].Locals[2].Data != 0 {
+					t.Errorf("all(range(3)) should be false")
+				}
+				if m.Frames[0].Locals[3].Data != 1 {
+					t.Errorf("any(range(3)) should be true")
+				}
+				if m.Frames[0].Locals[4].Data != 1 {
+					t.Errorf("all([1,2,3]) should be true")
+				}
 			},
 		},
 		{
@@ -219,7 +256,9 @@ x = items[1]
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
 				xVal := m.Frames[0].Locals[1].Int()
-				if xVal != 20 { t.Errorf("Expected items[1] = 20, got %d", xVal) }
+				if xVal != 20 {
+					t.Errorf("Expected items[1] = 20, got %d", xVal)
+				}
 			},
 		},
 		{
@@ -237,11 +276,21 @@ t1 = type(10)
 is_f = callable("double")
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
-				if m.Frames[0].Locals[1].Int() != 3 { t.Errorf("divmod q failed") }
-				if m.Frames[0].Locals[2].Int() != 1 { t.Errorf("divmod r failed") }
-				if value.UnpackString(m.Frames[0].Locals[3].Data, m.Arena) != "0xff" { t.Errorf("hex failed") }
-				if value.UnpackString(m.Frames[0].Locals[7].Data, m.Arena) != "int" { t.Errorf("type failed") }
-				if m.Frames[0].Locals[8].Data != 1 { t.Errorf("callable failed") }
+				if m.Frames[0].Locals[1].Int() != 3 {
+					t.Errorf("divmod q failed")
+				}
+				if m.Frames[0].Locals[2].Int() != 1 {
+					t.Errorf("divmod r failed")
+				}
+				if value.UnpackString(m.Frames[0].Locals[3].Data, m.Arena) != "0xff" {
+					t.Errorf("hex failed")
+				}
+				if value.UnpackString(m.Frames[0].Locals[7].Data, m.Arena) != "int" {
+					t.Errorf("type failed")
+				}
+				if m.Frames[0].Locals[8].Data != 1 {
+					t.Errorf("callable failed")
+				}
 			},
 		},
 		{
@@ -253,7 +302,9 @@ val = items[1]
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
 				val := m.Frames[0].Locals[1].Int() // items=0, val=1
-				if val != 99 { t.Errorf("Expected 99, got %d", val) }
+				if val != 99 {
+					t.Errorf("Expected 99, got %d", val)
+				}
 			},
 		},
 		{
@@ -265,8 +316,12 @@ v1 = next(it)
 v2 = next(it)
 `,
 			verify: func(m *vm.Machine, t *testing.T) {
-				if m.Frames[0].Locals[2].Int() != 10 { t.Errorf("next 1 failed") }
-				if m.Frames[0].Locals[3].Int() != 20 { t.Errorf("next 2 failed") }
+				if m.Frames[0].Locals[2].Int() != 10 {
+					t.Errorf("next 1 failed")
+				}
+				if m.Frames[0].Locals[3].Int() != 20 {
+					t.Errorf("next 2 failed")
+				}
 			},
 		},
 	}
@@ -281,76 +336,73 @@ v2 = next(it)
 
 			machine := vm.GetMachine()
 			defer vm.PutMachine(machine)
-			
+
 			machine.Code = bytecode.Instructions
 			machine.Constants = bytecode.Constants
 			machine.Arena = bytecode.Arena
-			
+
 			for name, ip := range bytecode.Functions {
 				machine.FunctionRegistry[name] = ip
 			}
-			
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 0
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 1
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 2
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 3
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 4
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 5
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 6
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 7
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 8
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 9
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 10
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 11
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 12
-			machine.RegisterHostFunction("", func(m *vm.Machine) error { return nil }) // 13
-			machine.RegisterHostFunction("", stdlib.Len)      // 14
-			machine.RegisterHostFunction("", stdlib.Range)    // 15
-			machine.RegisterHostFunction("", stdlib.List)     // 16
-			machine.RegisterHostFunction("", stdlib.Sum)      // 17
-			machine.RegisterHostFunction("", stdlib.Max)      // 18
-			machine.RegisterHostFunction("", stdlib.Min)      // 19
-			machine.RegisterHostFunction("", stdlib.Map)      // 20
-			machine.RegisterHostFunction("", stdlib.Abs)      // 21
-			machine.RegisterHostFunction("", stdlib.Bool)     // 22
-			machine.RegisterHostFunction("", stdlib.Int)      // 23
-			machine.RegisterHostFunction("", stdlib.Str)      // 24
-			machine.RegisterHostFunction("", stdlib.Filter)   // 25
-			machine.RegisterHostFunction("", stdlib.Pow)      // 26
-			machine.RegisterHostFunction("", stdlib.All)      // 27
-			machine.RegisterHostFunction("", stdlib.Any)      // 28
-						machine.RegisterHostFunction("", stdlib.MakeList)  // 29
-						machine.RegisterHostFunction("", stdlib.GetItem)   // 30
-						machine.RegisterHostFunction("", stdlib.SetItem)   // 59
-						machine.RegisterHostFunction("", stdlib.DivMod)    // 31
-			machine.RegisterHostFunction("", stdlib.Round)    // 32
-			machine.RegisterHostFunction("", stdlib.Float)    // 33
-			machine.RegisterHostFunction("", stdlib.Bin)      // 34
-			machine.RegisterHostFunction("", stdlib.Oct)      // 35
-			machine.RegisterHostFunction("", stdlib.Hex)      // 36
-			machine.RegisterHostFunction("", stdlib.Chr)      // 37
-			machine.RegisterHostFunction("", stdlib.Ord)      // 38
-			machine.RegisterHostFunction("", stdlib.Dict)     // 39
-			machine.RegisterHostFunction("", stdlib.Tuple)    // 40
-			machine.RegisterHostFunction("", stdlib.Set)      // 41
-			machine.RegisterHostFunction("", stdlib.Reversed)  // 42
-			machine.RegisterHostFunction("", stdlib.Sorted)    // 43
-			machine.RegisterHostFunction("", stdlib.Zip)       // 44
-			machine.RegisterHostFunction("", stdlib.Enumerate) // 45
-			machine.RegisterHostFunction("", stdlib.Repr)      // 46
-			machine.RegisterHostFunction("", stdlib.Ascii)     // 47
-			machine.RegisterHostFunction("", stdlib.Hash)      // 48
-			machine.RegisterHostFunction("", stdlib.Id)        // 49
-			machine.RegisterHostFunction("", stdlib.TypeWord)  // 50
-			machine.RegisterHostFunction("", stdlib.Callable)  // 51
-			machine.RegisterHostFunction("", stdlib.Iter)      // 52
-			machine.RegisterHostFunction("", stdlib.Next)      // 53
+
+			machine.HostRegistry = make([]vm.HostFunctionEntry, 100)
+			for idx := range machine.HostRegistry {
+				machine.HostRegistry[idx] = vm.HostFunctionEntry{Fn: func(m *vm.Machine) error { return nil }}
+			}
+			machine.HostRegistry[14] = vm.HostFunctionEntry{Fn: stdlib.Len}
+			machine.HostRegistry[15] = vm.HostFunctionEntry{Fn: stdlib.Range}
+			machine.HostRegistry[16] = vm.HostFunctionEntry{Fn: stdlib.List}
+			machine.HostRegistry[17] = vm.HostFunctionEntry{Fn: stdlib.Sum}
+			machine.HostRegistry[18] = vm.HostFunctionEntry{Fn: stdlib.Max}
+			machine.HostRegistry[19] = vm.HostFunctionEntry{Fn: stdlib.Min}
+			machine.HostRegistry[20] = vm.HostFunctionEntry{Fn: stdlib.Map}
+			machine.HostRegistry[21] = vm.HostFunctionEntry{Fn: stdlib.Abs}
+			machine.HostRegistry[22] = vm.HostFunctionEntry{Fn: stdlib.Bool}
+			machine.HostRegistry[23] = vm.HostFunctionEntry{Fn: stdlib.Int}
+			machine.HostRegistry[24] = vm.HostFunctionEntry{Fn: stdlib.Str}
+			machine.HostRegistry[25] = vm.HostFunctionEntry{Fn: stdlib.Filter}
+			machine.HostRegistry[26] = vm.HostFunctionEntry{Fn: stdlib.Pow}
+			machine.HostRegistry[27] = vm.HostFunctionEntry{Fn: stdlib.All}
+			machine.HostRegistry[28] = vm.HostFunctionEntry{Fn: stdlib.Any}
+			machine.HostRegistry[29] = vm.HostFunctionEntry{Fn: stdlib.MakeList}
+			machine.HostRegistry[30] = vm.HostFunctionEntry{Fn: stdlib.GetItem}
+			machine.HostRegistry[31] = vm.HostFunctionEntry{Fn: stdlib.SetItem}
+			machine.HostRegistry[32] = vm.HostFunctionEntry{Fn: stdlib.DivMod}
+			machine.HostRegistry[33] = vm.HostFunctionEntry{Fn: stdlib.Round}
+			machine.HostRegistry[34] = vm.HostFunctionEntry{Fn: stdlib.Float}
+			machine.HostRegistry[35] = vm.HostFunctionEntry{Fn: stdlib.Bin}
+			machine.HostRegistry[36] = vm.HostFunctionEntry{Fn: stdlib.Oct}
+			machine.HostRegistry[37] = vm.HostFunctionEntry{Fn: stdlib.Hex}
+			machine.HostRegistry[38] = vm.HostFunctionEntry{Fn: stdlib.Chr}
+			machine.HostRegistry[39] = vm.HostFunctionEntry{Fn: stdlib.Ord}
+			machine.HostRegistry[40] = vm.HostFunctionEntry{Fn: stdlib.Dict}
+			machine.HostRegistry[41] = vm.HostFunctionEntry{Fn: stdlib.Tuple}
+			machine.HostRegistry[42] = vm.HostFunctionEntry{Fn: stdlib.Set}
+			machine.HostRegistry[43] = vm.HostFunctionEntry{Fn: stdlib.Reversed}
+			machine.HostRegistry[44] = vm.HostFunctionEntry{Fn: stdlib.Sorted}
+			machine.HostRegistry[45] = vm.HostFunctionEntry{Fn: stdlib.Zip}
+			machine.HostRegistry[46] = vm.HostFunctionEntry{Fn: stdlib.Enumerate}
+			machine.HostRegistry[47] = vm.HostFunctionEntry{Fn: stdlib.Repr}
+			machine.HostRegistry[48] = vm.HostFunctionEntry{Fn: stdlib.Ascii}
+			machine.HostRegistry[49] = vm.HostFunctionEntry{Fn: stdlib.Hash}
+			machine.HostRegistry[50] = vm.HostFunctionEntry{Fn: stdlib.Id}
+			machine.HostRegistry[51] = vm.HostFunctionEntry{Fn: stdlib.TypeWord}
+			machine.HostRegistry[52] = vm.HostFunctionEntry{Fn: stdlib.Callable}
+			machine.HostRegistry[53] = vm.HostFunctionEntry{Fn: stdlib.Iter}
+			machine.HostRegistry[54] = vm.HostFunctionEntry{Fn: stdlib.Next}
+			machine.HostRegistry[55] = vm.HostFunctionEntry{Fn: stdlib.Locals}
+			machine.HostRegistry[56] = vm.HostFunctionEntry{Fn: stdlib.Globals}
+			machine.HostRegistry[57] = vm.HostFunctionEntry{Fn: stdlib.SliceBuiltin}
+			machine.HostRegistry[58] = vm.HostFunctionEntry{Fn: stdlib.Bytes}
+			machine.HostRegistry[59] = vm.HostFunctionEntry{Fn: stdlib.ByteArray}
+			machine.HostRegistry[60] = vm.HostFunctionEntry{Fn: stdlib.HasNext}
+			machine.HostRegistry[63] = vm.HostFunctionEntry{Fn: stdlib.IsInstance}
 
 			err = machine.Run(10000)
 			if err != nil {
 				t.Fatalf("Runtime error: %v", err)
 			}
-			
+
 			tt.verify(machine, t)
 		})
 	}

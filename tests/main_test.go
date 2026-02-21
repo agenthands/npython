@@ -42,7 +42,7 @@ func runNPython(ctx context.Context, scriptPath string, workDir string, args []s
 	fullArgs := append([]string{"run", scriptPath}, args...)
 	cmd := exec.CommandContext(ctx, absNPython, fullArgs...)
 	cmd.Dir = workDir
-	
+
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
@@ -53,7 +53,7 @@ func TestSuite_HappyPath(t *testing.T) {
 	// 1. Setup
 	sandbox, teardown := setupSandbox(t)
 	defer teardown()
-	
+
 	server := setupMockInternet()
 	defer server.Close()
 
@@ -78,7 +78,7 @@ func TestSuite_HappyPath(t *testing.T) {
 	// 3. Execute
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	
+
 	out, err := runNPython(ctx, scriptPath, sandbox, nil)
 
 	// 4. Assertions
@@ -206,7 +206,7 @@ func TestSuite_Performance_ZeroAlloc(t *testing.T) {
 	}
 
 	t.Logf("Executed 1,000 iterations in %v", duration)
-	
+
 	if duration > 1*time.Second {
 		t.Errorf("Performance too slow: %v", duration)
 	}

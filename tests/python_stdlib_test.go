@@ -2,13 +2,15 @@ package main_test
 
 import (
 	"testing"
+
 	"github.com/agenthands/npython/pkg/compiler/python"
-	"github.com/agenthands/npython/pkg/vm"
 	"github.com/agenthands/npython/pkg/core/value"
 	"github.com/agenthands/npython/pkg/stdlib"
+	"github.com/agenthands/npython/pkg/vm"
 )
 
 type MockGate struct{}
+
 func (m *MockGate) Validate(scope, token string) bool {
 	return token == "valid-token"
 }
@@ -33,6 +35,7 @@ if res == "MOCK_BODY":
 		Constants:  bytecode.Constants,
 		Arena:      bytecode.Arena,
 		Gatekeeper: &MockGate{},
+		TokenMap:   make(map[string]string),
 	}
 
 	// Register Host Functions (matching PythonBuiltins indices)
@@ -96,6 +99,7 @@ else:
 		Code:      bytecode.Instructions,
 		Constants: bytecode.Constants,
 		Arena:     bytecode.Arena,
+		TokenMap:  make(map[string]string),
 	}
 
 	// Register Host Functions (matching PythonBuiltins indices)
@@ -109,9 +113,15 @@ else:
 	}
 
 	// Verify results in locals
-	if machine.Frames[0].Locals[1].Int() != 1 { t.Errorf("ok1 failed") }
-	if machine.Frames[0].Locals[2].Int() != 1 { t.Errorf("ok2 failed") }
-	if machine.Frames[0].Locals[3].Int() != 1 { t.Errorf("ok3 failed") }
+	if machine.Frames[0].Locals[1].Int() != 1 {
+		t.Errorf("ok1 failed")
+	}
+	if machine.Frames[0].Locals[2].Int() != 1 {
+		t.Errorf("ok2 failed")
+	}
+	if machine.Frames[0].Locals[3].Int() != 1 {
+		t.Errorf("ok3 failed")
+	}
 }
 
 func TestPythonHttpBuilder(t *testing.T) {
@@ -134,12 +144,13 @@ with scope("HTTP-ENV", "valid-token"):
 		Constants:  bytecode.Constants,
 		Arena:      bytecode.Arena,
 		Gatekeeper: &MockGate{},
+		TokenMap:   make(map[string]string),
 	}
 
 	// Register Host Functions
 	httpSandbox := stdlib.NewHTTPSandbox([]string{"example.com"})
 	httpSandbox.AllowLocalhost = true
-	
+
 	machine.HostRegistry = make([]vm.HostFunctionEntry, 16)
 	machine.HostRegistry[11] = vm.HostFunctionEntry{Fn: httpSandbox.WithClient}
 	machine.HostRegistry[12] = vm.HostFunctionEntry{Fn: httpSandbox.SetURL}
@@ -165,5 +176,3 @@ with scope("HTTP-ENV", "valid-token"):
 		t.Errorf("Expected status 201, got %d", statusVal.Int())
 	}
 }
-
-
