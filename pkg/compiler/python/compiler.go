@@ -125,7 +125,15 @@ func (c *Compiler) Compile(src string) (*vm.Bytecode, error) {
 		return nil, fmt.Errorf("expected *ast.Module")
 	}
 
-	for _, stmt := range module.Body {
+	for i, stmt := range module.Body {
+		if i == len(module.Body)-1 {
+			if expr, ok := stmt.(*ast.ExprStmt); ok {
+				if err := c.emitExpr(expr.Value); err != nil {
+					return nil, err
+				}
+				continue
+			}
+		}
 		if err := c.emitStmt(stmt); err != nil {
 			return nil, err
 		}
