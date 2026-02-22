@@ -13,19 +13,25 @@ import (
 )
 
 func pushString(m *vm.Machine, s string) error {
-	offset := uint32(len(m.Arena))
-	length := uint32(len(s))
-	m.Arena = append(m.Arena, []byte(s)...)
-	m.Push(value.Value{Type: value.TypeString, Data: value.PackString(offset, length)})
+	offset, err := m.WriteArena([]byte(s))
+	if err != nil {
+		return err
+	}
+	m.Push(value.Value{Type: value.TypeString, Data: value.PackString(offset, uint32(len(s)))})
 	return nil
 }
 
 // DivMod: ( a b -- tuple(q, r) )
 func DivMod(m *vm.Machine) error {
-	b := m.Pop().Int()
-	a := m.Pop().Int()
+	bVal := m.Pop()
+	aVal := m.Pop()
+	if bVal.Type != value.TypeInt || aVal.Type != value.TypeInt {
+		return errors.New("TypeError: unsupported operand type(s) for divmod()")
+	}
+	b := bVal.Int()
+	a := aVal.Int()
 	if b == 0 {
-		return errors.New("div0")
+		return errors.New("ZeroDivisionError: integer division or modulo by zero")
 	}
 	m.Push(value.Value{Type: value.TypeTuple, Opaque: []value.Value{
 		{Type: value.TypeInt, Data: uint64(a / b)},
@@ -35,6 +41,23 @@ func DivMod(m *vm.Machine) error {
 }
 
 func Round(m *vm.Machine) error {
+	nVal := m.Pop()
+	if nVal.Type != value.TypeInt {
+		return errors.New("TypeError: expected int for arg count")
+	}
+	n := nVal.Int()
+
+	var ndigits int64
+	if n == 2 {
+		ndVal := m.Pop()
+		if ndVal.Type != value.TypeInt {
+			return errors.New("TypeError: ndigits must be an integer")
+		}
+		ndigits = ndVal.Int()
+	} else if n != 1 {
+		return fmt.Errorf("TypeError: round() takes at most 2 arguments (%d given)", n)
+	}
+
 	v := m.Pop()
 	var f float64
 	if v.Type == value.TypeInt {
@@ -44,7 +67,14 @@ func Round(m *vm.Machine) error {
 	} else {
 		return fmt.Errorf("TypeError: type %d doesn't define __round__ method", v.Type)
 	}
-	m.Push(value.Value{Type: value.TypeInt, Data: uint64(int64(math.Round(f)))})
+
+	if n == 1 {
+		m.Push(value.Value{Type: value.TypeInt, Data: uint64(int64(math.Round(f)))})
+	} else {
+		p := math.Pow(10, float64(ndigits))
+		res := math.Round(f*p) / p
+		m.Push(value.Value{Type: value.TypeFloat, Data: math.Float64bits(res)})
+	}
 	return nil
 }
 
@@ -116,7 +146,11 @@ func Dict(m *vm.Machine) error {
 }
 
 func MakeTuple(m *vm.Machine) error {
-	n := int(m.Pop().Int())
+	nVal := m.Pop()
+	if nVal.Type != value.TypeInt {
+		return errors.New("TypeError: tuple size must be integer")
+	}
+	n := int(nVal.Int())
 	l := make([]value.Value, n)
 	for i := n - 1; i >= 0; i-- {
 		l[i] = m.Pop()
@@ -420,6 +454,16 @@ func List(m *vm.Machine) error {
 }
 
 func Sum(m *vm.Machine) error {
+	n := int(m.Pop().Int())
+	if n == 0 {
+		return errors.New("TypeError: sum() expected at least 1 argument, got 0")
+	}
+
+	var start int64 = 0
+	if n == 2 {
+		start = m.Pop().Int()
+	}
+
 	v := m.Pop()
 	var l []value.Value
 	if v.Type == value.TypeList {
@@ -429,10 +473,13 @@ func Sum(m *vm.Machine) error {
 	} else {
 		return fmt.Errorf("TypeError: '%v' object is not iterable", v.Type)
 	}
-	var total int64
+
+	var total int64 = start
 	for _, x := range l {
 		if x.Type == value.TypeInt {
 			total += int64(x.Data)
+		} else if x.Type == value.TypeFloat {
+			total += int64(math.Float64frombits(x.Data))
 		}
 	}
 	m.Push(value.Value{Type: value.TypeInt, Data: uint64(total)})
@@ -440,17 +487,31 @@ func Sum(m *vm.Machine) error {
 }
 
 func Max(m *vm.Machine) error {
-	v := m.Pop()
-	if v.Type != value.TypeList {
-		return fmt.Errorf("TypeError: '%v' object is not iterable", v.Type)
+	n := int(m.Pop().Int())
+	if n == 0 {
+		return errors.New("TypeError: max() expected at least 1 argument, got 0")
 	}
-	l := *(v.Opaque.(*[]value.Value))
+
+	var l []value.Value
+	if n == 1 {
+		v := m.Pop()
+		if v.Type != value.TypeList {
+			return fmt.Errorf("TypeError: '%v' object is not iterable", v.Type)
+		}
+		l = *(v.Opaque.(*[]value.Value))
+	} else {
+		l = make([]value.Value, n)
+		for i := n - 1; i >= 0; i-- {
+			l[i] = m.Pop()
+		}
+	}
+
 	if len(l) == 0 {
 		return errors.New("ValueError: max() arg is an empty sequence")
 	}
 	mx := l[0]
 	for _, x := range l {
-		if x.Data > mx.Data {
+		if x.Int() > mx.Int() {
 			mx = x
 		}
 	}
@@ -459,17 +520,31 @@ func Max(m *vm.Machine) error {
 }
 
 func Min(m *vm.Machine) error {
-	v := m.Pop()
-	if v.Type != value.TypeList {
-		return fmt.Errorf("TypeError: '%v' object is not iterable", v.Type)
+	n := int(m.Pop().Int())
+	if n == 0 {
+		return errors.New("TypeError: min() expected at least 1 argument, got 0")
 	}
-	l := *(v.Opaque.(*[]value.Value))
+
+	var l []value.Value
+	if n == 1 {
+		v := m.Pop()
+		if v.Type != value.TypeList {
+			return fmt.Errorf("TypeError: '%v' object is not iterable", v.Type)
+		}
+		l = *(v.Opaque.(*[]value.Value))
+	} else {
+		l = make([]value.Value, n)
+		for i := n - 1; i >= 0; i-- {
+			l[i] = m.Pop()
+		}
+	}
+
 	if len(l) == 0 {
 		return errors.New("ValueError: min() arg is an empty sequence")
 	}
 	mn := l[0]
 	for _, x := range l {
-		if x.Data < mn.Data {
+		if x.Int() < mn.Int() {
 			mn = x
 		}
 	}
@@ -618,19 +693,44 @@ func Any(m *vm.Machine) error {
 
 func SetItem(m *vm.Machine) error {
 	v := m.Pop()
-	i := m.Pop()
-	o := m.Pop()
-	if o.Type == value.TypeList {
-		(*o.Opaque.(*[]value.Value))[i.Int()] = v
+	idxVal := m.Pop()
+	obj := m.Pop()
+	if obj.Type == value.TypeList {
+		if idxVal.Type != value.TypeInt {
+			return errors.New("TypeError: list indices must be integers")
+		}
+		l := *(obj.Opaque.(*[]value.Value))
+		idx := int(idxVal.Int())
+		if idx < 0 {
+			idx += len(l)
+		}
+		if idx < 0 || idx >= len(l) {
+			return errors.New("IndexError: list assignment index out of range")
+		}
+		l[idx] = v
+	} else if obj.Type == value.TypeDict {
+		if idxVal.Type != value.TypeString {
+			return errors.New("TypeError: dictionary keys must be strings in this implementation")
+		}
+		key := value.UnpackString(idxVal.Data, m.Arena)
+		obj.Opaque.(map[string]any)[key] = v
 	} else {
-		o.Opaque.(map[string]any)[value.UnpackString(i.Data, m.Arena)] = v
+		return fmt.Errorf("TypeError: '%v' object does not support item assignment", obj.Type)
 	}
 	return nil
 }
 
 func MethodCall(m *vm.Machine) error {
-	n := int(m.Pop().Int())
-	name := value.UnpackString(m.Pop().Data, m.Arena)
+	nVal := m.Pop()
+	if nVal.Type != value.TypeInt {
+		return errors.New("TypeError: method call arg count must be integer")
+	}
+	n := int(nVal.Int())
+	nameVal := m.Pop()
+	if nameVal.Type != value.TypeString {
+		return errors.New("TypeError: method name must be string")
+	}
+	name := value.UnpackString(nameVal.Data, m.Arena)
 	args := make([]value.Value, n)
 	for i := n - 1; i >= 0; i-- {
 		args[i] = m.Pop()
@@ -713,6 +813,15 @@ func MethodCall(m *vm.Machine) error {
 		case "json":
 			m.Push(obj)
 			return ParseJSON(m)
+		case "format":
+			res := s
+			for _, arg := range args {
+				res = strings.Replace(res, "{}", arg.Format(m.Arena), 1)
+			}
+			for i, arg := range args {
+				res = strings.ReplaceAll(res, fmt.Sprintf("{%d}", i), arg.Format(m.Arena))
+			}
+			return pushString(m, res)
 		}
 	}
 	return nil
@@ -730,7 +839,11 @@ func Print(m *vm.Machine) error {
 }
 
 func MakeList(m *vm.Machine) error {
-	n := int(m.Pop().Int())
+	nVal := m.Pop()
+	if nVal.Type != value.TypeInt {
+		return errors.New("TypeError: list size must be integer")
+	}
+	n := int(nVal.Int())
 	l := make([]value.Value, n)
 	for i := n - 1; i >= 0; i-- {
 		l[i] = m.Pop()
@@ -760,16 +873,29 @@ func GetItem(m *vm.Machine) error {
 		return nil
 	} else if obj.Type == value.TypeTuple {
 		l := obj.Opaque.([]value.Value)
+		if idxVal.Type != value.TypeInt {
+			return errors.New("TypeError: tuple indices must be integers")
+		}
 		idx := int(idxVal.Int())
 		if idx < 0 {
 			idx += len(l)
 		}
+		if idx < 0 || idx >= len(l) {
+			return errors.New("IndexError: tuple index out of range")
+		}
 		m.Push(l[idx])
 		return nil
 	} else if obj.Type == value.TypeDict {
+		if idxVal.Type != value.TypeString {
+			return errors.New("TypeError: dictionary keys must be strings")
+		}
 		d := obj.Opaque.(map[string]any)
 		key := value.UnpackString(idxVal.Data, m.Arena)
-		return pushConverted(m, d[key])
+		val, ok := d[key]
+		if !ok {
+			return fmt.Errorf("KeyError: %s", key)
+		}
+		return pushConverted(m, val)
 	}
 	return fmt.Errorf("TypeError: cannot index into object of type %v", obj.Type)
 }

@@ -195,16 +195,30 @@ func (c *Compiler) emitStmt(stmt ast.Stmt) error {
 			}
 			c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(target.Id))))
 		case *ast.Tuple:
+			// Unpack via temporary local
+			tmpIdx := c.getLocalIndex("__tmp_unpack")
 			if err := c.emitExpr(s.Value); err != nil {
 				return err
 			}
+			c.emitOp(vm.OP_POP_L, uint32(tmpIdx))
 			for i, el := range target.Elts {
-				c.emitOp(vm.OP_DUP, 0)
+				c.emitOp(vm.OP_PUSH_L, uint32(tmpIdx))
 				c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(i)}))
 				c.emitOp(vm.OP_SYSCALL, 30) // get_item
-				c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(el.(*ast.Name).Id))))
+				if name, ok := el.(*ast.Name); ok {
+					c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(name.Id))))
+				} else if sub, ok := el.(*ast.Subscript); ok {
+					if err := c.emitExpr(sub.Value); err != nil {
+						return err
+					}
+					if err := c.emitExpr(sub.Slice.(*ast.Index).Value); err != nil {
+						return err
+					}
+					c.emitOp(vm.OP_DUP, 2) // Dup the value from 2 down
+					c.emitOp(vm.OP_SYSCALL, 31)
+					c.emitOp(vm.OP_DROP, 0) // Drop the extra dup
+				}
 			}
-			c.emitOp(vm.OP_DROP, 0)
 		case *ast.Subscript:
 			if err := c.emitExpr(target.Value); err != nil {
 				return err
@@ -298,13 +312,26 @@ func (c *Compiler) emitStmt(stmt ast.Stmt) error {
 		case *ast.Name:
 			c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(target.Id))))
 		case *ast.Tuple:
+			tmpIdx := c.getLocalIndex("__tmp_for")
+			c.emitOp(vm.OP_POP_L, uint32(tmpIdx))
 			for i, el := range target.Elts {
-				c.emitOp(vm.OP_DUP, 0)
+				c.emitOp(vm.OP_PUSH_L, uint32(tmpIdx))
 				c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(i)}))
-				c.emitOp(vm.OP_SYSCALL, 30)
-				c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(el.(*ast.Name).Id))))
+				c.emitOp(vm.OP_SYSCALL, 30) // get_item
+				if name, ok := el.(*ast.Name); ok {
+					c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(name.Id))))
+				} else if sub, ok := el.(*ast.Subscript); ok {
+					if err := c.emitExpr(sub.Value); err != nil {
+						return err
+					}
+					if err := c.emitExpr(sub.Slice.(*ast.Index).Value); err != nil {
+						return err
+					}
+					c.emitOp(vm.OP_DUP, 2)
+					c.emitOp(vm.OP_SYSCALL, 31)
+					c.emitOp(vm.OP_DROP, 0)
+				}
 			}
-			c.emitOp(vm.OP_DROP, 0)
 		}
 		for _, stmt := range s.Body {
 			if err := c.emitStmt(stmt); err != nil {
@@ -416,8 +443,12 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 			c.emitOp(vm.OP_PUSH_L, uint32(c.getLocalIndex(name)))
 		}
 	case *ast.BinOp:
-		c.emitExpr(e.Left)
-		c.emitExpr(e.Right)
+		if err := c.emitExpr(e.Left); err != nil {
+			return err
+		}
+		if err := c.emitExpr(e.Right); err != nil {
+			return err
+		}
 		switch e.Op {
 		case ast.Add:
 			c.emitOp(vm.OP_ADD, 0)
@@ -427,14 +458,28 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 			c.emitOp(vm.OP_MUL, 0)
 		case ast.Div:
 			c.emitOp(vm.OP_DIV, 0)
+		case ast.FloorDiv:
+			c.emitOp(vm.OP_FLOOR_DIV, 0)
 		case ast.Modulo:
 			c.emitOp(vm.OP_MOD, 0)
 		case ast.Pow:
 			c.emitOp(vm.OP_POW, 0)
+		case ast.BitAnd:
+			c.emitOp(vm.OP_BIT_AND, 0)
+		case ast.BitOr:
+			c.emitOp(vm.OP_BIT_OR, 0)
+		case ast.BitXor:
+			c.emitOp(vm.OP_BIT_XOR, 0)
+		case ast.LShift:
+			c.emitOp(vm.OP_LSHIFT, 0)
+		case ast.RShift:
+			c.emitOp(vm.OP_RSHIFT, 0)
 		}
 	case *ast.BoolOp:
 		for _, v := range e.Values {
-			c.emitExpr(v)
+			if err := c.emitExpr(v); err != nil {
+				return err
+			}
 		}
 		if e.Op == ast.And {
 			c.emitOp(vm.OP_AND, 0)
@@ -442,8 +487,12 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 			c.emitOp(vm.OP_OR, 0)
 		}
 	case *ast.Compare:
-		c.emitExpr(e.Left)
-		c.emitExpr(e.Comparators[0])
+		if err := c.emitExpr(e.Left); err != nil {
+			return err
+		}
+		if err := c.emitExpr(e.Comparators[0]); err != nil {
+			return err
+		}
 		switch e.Ops[0] {
 		case ast.Eq:
 			c.emitOp(vm.OP_EQ, 0)
@@ -472,9 +521,11 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 			name := string(fn.Id)
 			if sysIdx, ok := PythonBuiltins[name]; ok {
 				for _, arg := range e.Args {
-					c.emitExpr(arg)
+					if err := c.emitExpr(arg); err != nil {
+						return err
+					}
 				}
-				if name == "print" || name == "range" {
+				if name == "print" || name == "range" || name == "round" || name == "min" || name == "max" || name == "sum" {
 					c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(len(e.Args))}))
 				}
 				c.emitOp(vm.OP_SYSCALL, sysIdx)
@@ -486,7 +537,9 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 			if sig, ok := c.functions[name]; ok {
 				if len(e.Keywords) == 0 {
 					for _, arg := range e.Args {
-						c.emitExpr(arg)
+						if err := c.emitExpr(arg); err != nil {
+							return err
+						}
 					}
 				} else {
 					argMap := make(map[string]ast.Expr)
@@ -502,7 +555,9 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 						if _, ok := argMap[argName]; !ok {
 							return fmt.Errorf("missing argument '%s'", argName)
 						}
-						c.emitExpr(argMap[argName])
+						if err := c.emitExpr(argMap[argName]); err != nil {
+							return err
+						}
 					}
 				}
 				c.emitOp(vm.OP_CALL, (uint32(sig.ip)<<8)|(uint32(len(sig.args))&0xFF))
@@ -529,7 +584,9 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 		c.emitOp(vm.OP_SUB, 0)
 	case *ast.List:
 		for _, el := range e.Elts {
-			c.emitExpr(el)
+			if err := c.emitExpr(el); err != nil {
+				return err
+			}
 		}
 		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(len(e.Elts))}))
 		c.emitOp(vm.OP_SYSCALL, 29)
@@ -537,14 +594,21 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: 0}))
 		c.emitOp(vm.OP_SYSCALL, 29)
 		return c.emitComprehension(e.Elt, e.Generators)
+	case *ast.DictComp:
+		c.emitOp(vm.OP_SYSCALL, 40) // New Dict
+		return c.emitDictComprehension(e.Key, e.Value, e.Generators)
 	case *ast.GeneratorExp:
 		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: 0}))
 		c.emitOp(vm.OP_SYSCALL, 29)
-		c.emitComprehension(e.Elt, e.Generators)
+		if err := c.emitComprehension(e.Elt, e.Generators); err != nil {
+			return err
+		}
 		c.emitOp(vm.OP_SYSCALL, 53)
 	case *ast.Tuple:
 		for _, el := range e.Elts {
-			c.emitExpr(el)
+			if err := c.emitExpr(el); err != nil {
+				return err
+			}
 		}
 		c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: uint64(len(e.Elts))}))
 		c.emitOp(vm.OP_SYSCALL, 61)
@@ -552,8 +616,12 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 		c.emitOp(vm.OP_SYSCALL, 40)
 		for i := range e.Keys {
 			c.emitOp(vm.OP_DUP, 0)
-			c.emitExpr(e.Keys[i])
-			c.emitExpr(e.Values[i])
+			if err := c.emitExpr(e.Keys[i]); err != nil {
+				return err
+			}
+			if err := c.emitExpr(e.Values[i]); err != nil {
+				return err
+			}
 			c.emitOp(vm.OP_SYSCALL, 31)
 		}
 	case *ast.Attribute:
@@ -602,7 +670,9 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 		for i, a := range e.Args.Args {
 			c.locals[string(a.Arg)] = i
 		}
-		c.emitExpr(e.Body)
+		if err := c.emitExpr(e.Body); err != nil {
+			return err
+		}
 		c.emitOp(vm.OP_RET, 0)
 		c.locals, c.nextLocal = oldL, oldN
 		c.instructions[jmp] = (uint32(vm.OP_JMP) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
@@ -615,7 +685,9 @@ func (c *Compiler) emitExpr(expr ast.Expr) error {
 
 func (c *Compiler) emitComprehension(elt ast.Expr, generators []ast.Comprehension) error {
 	gen := generators[0]
-	c.emitExpr(gen.Iter)
+	if err := c.emitExpr(gen.Iter); err != nil {
+		return err
+	}
 	c.emitOp(vm.OP_SYSCALL, 53)
 	start := uint32(len(c.instructions))
 	c.emitOp(vm.OP_SYSCALL, 60)
@@ -626,16 +698,58 @@ func (c *Compiler) emitComprehension(elt ast.Expr, generators []ast.Comprehensio
 	c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(gen.Target.(*ast.Name).Id))))
 	var ifs []int
 	for _, cond := range gen.Ifs {
-		c.emitExpr(cond)
+		if err := c.emitExpr(cond); err != nil {
+			return err
+		}
 		ifs = append(ifs, len(c.instructions))
 		c.emitOp(vm.OP_JMP_FALSE, 0)
 	}
 	c.emitOp(vm.OP_DUP, 1)
-	c.emitExpr(elt)
+	if err := c.emitExpr(elt); err != nil {
+		return err
+	}
 	c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeString, Data: c.packNewString("append")}))
 	c.emitOp(vm.OP_PUSH_C, c.addConstant(value.Value{Type: value.TypeInt, Data: 1}))
 	c.emitOp(vm.OP_SYSCALL, 62)
 	c.emitOp(vm.OP_DROP, 0)
+	for _, idx := range ifs {
+		c.instructions[idx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
+	}
+	c.emitOp(vm.OP_JMP, start)
+	c.instructions[end] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
+	c.emitOp(vm.OP_DROP, 0)
+	return nil
+}
+
+func (c *Compiler) emitDictComprehension(key, val ast.Expr, generators []ast.Comprehension) error {
+	gen := generators[0]
+	if err := c.emitExpr(gen.Iter); err != nil {
+		return err
+	}
+	c.emitOp(vm.OP_SYSCALL, 53)
+	start := uint32(len(c.instructions))
+	c.emitOp(vm.OP_SYSCALL, 60)
+	end := len(c.instructions)
+	c.emitOp(vm.OP_JMP_FALSE, 0)
+	c.emitOp(vm.OP_DUP, 0)
+	c.emitOp(vm.OP_SYSCALL, 54)
+	c.emitOp(vm.OP_POP_L, uint32(c.getLocalIndex(string(gen.Target.(*ast.Name).Id))))
+	var ifs []int
+	for _, cond := range gen.Ifs {
+		if err := c.emitExpr(cond); err != nil {
+			return err
+		}
+		ifs = append(ifs, len(c.instructions))
+		c.emitOp(vm.OP_JMP_FALSE, 0)
+	}
+	c.emitOp(vm.OP_DUP, 1) // Dup the Dict
+	if err := c.emitExpr(key); err != nil {
+		return err
+	}
+	if err := c.emitExpr(val); err != nil {
+		return err
+	}
+	c.emitOp(vm.OP_SYSCALL, 31) // SetItem
 	for _, idx := range ifs {
 		c.instructions[idx] = (uint32(vm.OP_JMP_FALSE) << 24) | (uint32(len(c.instructions)) & 0x00FFFFFF)
 	}

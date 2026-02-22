@@ -45,7 +45,7 @@ func (s *HTTPSandbox) WithClient(m *vm.Machine) error {
 func (s *HTTPSandbox) SetURL(m *vm.Machine) error {
 	urlPacked := m.Pop().Data
 	urlStr := value.UnpackString(urlPacked, m.Arena)
-	
+
 	req, ok := s.pendingReqs[m]
 	if !ok {
 		return errors.New("stdlib/http: no pending request, call WITH-CLIENT first")
@@ -58,7 +58,7 @@ func (s *HTTPSandbox) SetURL(m *vm.Machine) error {
 func (s *HTTPSandbox) SetMethod(m *vm.Machine) error {
 	methodPacked := m.Pop().Data
 	method := value.UnpackString(methodPacked, m.Arena)
-	
+
 	req, ok := s.pendingReqs[m]
 	if !ok {
 		return errors.New("stdlib/http: no pending request, call WITH-CLIENT first")
@@ -105,10 +105,11 @@ func (s *HTTPSandbox) SendRequest(m *vm.Machine) error {
 		return err
 	}
 
-	// Push to Arena
-	offset := uint32(len(m.Arena))
+	offset, err := m.WriteArena(data)
+	if err != nil {
+		return err
+	}
 	length := uint32(len(data))
-	m.Arena = append(m.Arena, data...)
 
 	// Create a "Response" object. For now, we'll store status code in Opaque and body in String.
 	// But the spec says 'resp CHECK-STATUS', so we need to return something that CHECK-STATUS can use.
@@ -134,7 +135,7 @@ func (s *HTTPSandbox) CheckStatus(m *vm.Machine) error {
 	}
 	respMap := respVal.Opaque.(map[string]any)
 	status := respMap["status"].(int64)
-	
+
 	m.Push(value.Value{Type: value.TypeInt, Data: uint64(status)})
 	return nil
 }
@@ -171,9 +172,11 @@ func (s *HTTPSandbox) Fetch(m *vm.Machine) error {
 	}
 
 	// Push to Arena and Return
-	offset := uint32(len(m.Arena))
+	offset, err := m.WriteArena(data)
+	if err != nil {
+		return err
+	}
 	length := uint32(len(data))
-	m.Arena = append(m.Arena, data...)
 
 	m.Push(value.Value{
 		Type: value.TypeString,

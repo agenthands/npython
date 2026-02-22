@@ -2,16 +2,21 @@ package stdlib
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+
 	"github.com/agenthands/npython/pkg/core/value"
 	"github.com/agenthands/npython/pkg/vm"
 )
 
 // ParseJSON: ( str -- map )
 func ParseJSON(m *vm.Machine) error {
-	strPacked := m.Pop().Data
-	str := value.UnpackString(strPacked, m.Arena)
+	strVal := m.Pop()
+	if strVal.Type != value.TypeString {
+		return errors.New("TypeError: parse_json() argument 1 must be string")
+	}
+	str := value.UnpackString(strVal.Data, m.Arena)
 
 	var data map[string]any
 	if err := json.Unmarshal([]byte(str), &data); err != nil {
@@ -29,11 +34,14 @@ func ParseJSON(m *vm.Machine) error {
 func ParseJSONKey(m *vm.Machine) error {
 	keyVal := m.Pop() // key is on top
 	strVal := m.Pop() // str is below
-	
+	if keyVal.Type != value.TypeString || strVal.Type != value.TypeString {
+		return errors.New("TypeError: parse_json_key() arguments must be strings")
+	}
+
 	key := value.UnpackString(keyVal.Data, m.Arena)
 	str := value.UnpackString(strVal.Data, m.Arena)
 
-	// Since we are doing a lot of unescaping in UnpackString, 
+	// Since we are doing a lot of unescaping in UnpackString,
 	// let's ensure the string is a valid JSON before unmarshaling.
 	// If it's wrapped in extra quotes, strip them.
 	str = strings.Trim(str, "\"")
@@ -60,10 +68,11 @@ func pushConverted(m *vm.Machine, val any) error {
 	}
 	switch v := val.(type) {
 	case string:
-		offset := uint32(len(m.Arena))
-		length := uint32(len(v))
-		m.Arena = append(m.Arena, []byte(v)...)
-		m.Push(value.Value{Type: value.TypeString, Data: value.PackString(offset, length)})
+		offset, err := m.WriteArena([]byte(v))
+		if err != nil {
+			return err
+		}
+		m.Push(value.Value{Type: value.TypeString, Data: value.PackString(offset, uint32(len(v)))})
 	case float64:
 		m.Push(value.Value{Type: value.TypeInt, Data: uint64(int64(v))})
 	case bool:
@@ -77,7 +86,9 @@ func pushConverted(m *vm.Machine, val any) error {
 	case []any:
 		results := make([]value.Value, len(v))
 		for i, item := range v {
-			if err := pushConverted(m, item); err != nil { return err }
+			if err := pushConverted(m, item); err != nil {
+				return err
+			}
 			results[i] = m.Pop()
 		}
 		ptr := new([]value.Value)
@@ -87,10 +98,11 @@ func pushConverted(m *vm.Machine, val any) error {
 		m.Push(value.Value{Type: value.TypeVoid})
 	default:
 		s := fmt.Sprintf("%v", v)
-		offset := uint32(len(m.Arena))
-		length := uint32(len(s))
-		m.Arena = append(m.Arena, []byte(s)...)
-		m.Push(value.Value{Type: value.TypeString, Data: value.PackString(offset, length)})
+		offset, err := m.WriteArena([]byte(s))
+		if err != nil {
+			return err
+		}
+		m.Push(value.Value{Type: value.TypeString, Data: value.PackString(offset, uint32(len(s)))})
 	}
 	return nil
 }
@@ -99,7 +111,7 @@ func pushConverted(m *vm.Machine, val any) error {
 func GetField(m *vm.Machine) error {
 	keyVal := m.Pop() // key is on top
 	mapVal := m.Pop() // map is below
-	
+
 	key := value.UnpackString(keyVal.Data, m.Arena)
 	key = strings.Trim(key, "\"") // Handle LLM quotes
 	if mapVal.Type != value.TypeDict {

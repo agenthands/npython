@@ -3,6 +3,7 @@ package stdlib
 import (
 	"fmt"
 	"strings"
+
 	"github.com/agenthands/npython/pkg/core/value"
 	"github.com/agenthands/npython/pkg/vm"
 )
@@ -12,8 +13,11 @@ func FormatString(m *vm.Machine) error {
 	valVal := m.Pop()
 	formatVal := m.Pop()
 
+	if formatVal.Type != value.TypeString {
+		return fmt.Errorf("TypeError: format must be string")
+	}
 	format := value.UnpackString(formatVal.Data, m.Arena)
-	
+
 	var valStr string
 	if valVal.Type == value.TypeString {
 		valStr = value.UnpackString(valVal.Data, m.Arena)
@@ -27,13 +31,14 @@ func FormatString(m *vm.Machine) error {
 
 	result := strings.Replace(format, "%s", valStr, 1)
 
-	offset := uint32(len(m.Arena))
-	length := uint32(len(result))
-	m.Arena = append(m.Arena, []byte(result)...)
+	offset, err := m.WriteArena([]byte(result))
+	if err != nil {
+		return err
+	}
 
 	m.Push(value.Value{
 		Type: value.TypeString,
-		Data: value.PackString(offset, length),
+		Data: value.PackString(offset, uint32(len(result))),
 	})
 
 	return nil

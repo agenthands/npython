@@ -2,6 +2,7 @@ package stdlib
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/agenthands/npython/pkg/core/value"
@@ -32,6 +33,7 @@ func TestBuiltins(t *testing.T) {
 	t.Run("Round", func(t *testing.T) {
 		m.Reset()
 		m.Push(value.Value{Type: value.TypeFloat, Data: 0x40091eb851eb851f}) // 3.14
+		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		if err := Round(m); err != nil {
 			t.Fatal(err)
 		}
@@ -327,11 +329,12 @@ func TestBuiltins(t *testing.T) {
 
 		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		m.Push(value.Value{Type: value.TypeInt, Data: 0})
-		if err := DivMod(m); err == nil || err.Error() != "div0" {
-			t.Errorf("expected zero division error")
+		if err := DivMod(m); err == nil || !strings.Contains(err.Error(), "ZeroDivisionError") {
+			t.Errorf("expected zero division error, got %v", err)
 		}
 
 		m.Push(value.Value{Type: value.TypeString, Data: 0})
+		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		if err := Round(m); err == nil {
 			t.Errorf("expected error for round(str)")
 		}
@@ -546,6 +549,7 @@ func TestBuiltins(t *testing.T) {
 		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		Range(m)                // [0, 1, 2]
 		m.Push(m.Stack[m.SP-1]) // Dup
+		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		if err := Sum(m); err != nil {
 			t.Fatal(err)
 		}
@@ -553,6 +557,7 @@ func TestBuiltins(t *testing.T) {
 			t.Errorf("sum([0,1,2]) failed")
 		}
 
+		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		if err := Max(m); err != nil {
 			t.Fatal(err)
 		}
@@ -711,6 +716,7 @@ func TestBuiltins(t *testing.T) {
 
 		// Round Float
 		m.Push(value.Value{Type: value.TypeFloat, Data: math.Float64bits(1.1)})
+		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		Round(m)
 		if m.Pop().Int() != 1 {
 			t.Errorf("round float failed")
@@ -718,6 +724,7 @@ func TestBuiltins(t *testing.T) {
 
 		// Round Int
 		m.Push(value.Value{Type: value.TypeInt, Data: 10})
+		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		Round(m)
 		if m.Pop().Int() != 10 {
 			t.Errorf("round int failed")
@@ -804,6 +811,7 @@ func TestBuiltins(t *testing.T) {
 		emptySlice := []value.Value{}
 		// Sum empty
 		m.Push(value.Value{Type: value.TypeList, Opaque: &emptySlice})
+		m.Push(value.Value{Type: value.TypeInt, Data: 1})
 		Sum(m)
 		if m.Pop().Int() != 0 {
 			t.Errorf("sum empty failed")

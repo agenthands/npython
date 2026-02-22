@@ -3,6 +3,7 @@ package value
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"unsafe"
 )
@@ -66,6 +67,14 @@ func (v Value) Int() int64 {
 	return int64(v.Data)
 }
 
+// Float returns the value as float64.
+func (v Value) Float() float64 {
+	if v.Type == TypeFloat {
+		return math.Float64frombits(v.Data)
+	}
+	return float64(int64(v.Data))
+}
+
 // SetInt stores an int64.
 func (v *Value) SetInt(i int64) {
 	v.Type = TypeInt
@@ -74,13 +83,25 @@ func (v *Value) SetInt(i int64) {
 
 // Format returns a string representation of the value.
 func (v Value) Format(arena []byte) string {
+	return v.formatRecursive(arena, 0)
+}
+
+func (v Value) formatRecursive(arena []byte, depth int) string {
+	if depth > 10 {
+		return "..."
+	}
 	switch v.Type {
 	case TypeString:
 		return UnpackString(v.Data, arena)
 	case TypeInt:
 		return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%d", int64(v.Data)), ".0"), ".00")
 	case TypeFloat:
-		return fmt.Sprintf("%g", math.Float64frombits(v.Data))
+		f := math.Float64frombits(v.Data)
+		s := fmt.Sprintf("%g", f)
+		if !strings.ContainsAny(s, ".e") {
+			s += ".0"
+		}
+		return s
 	case TypeBool:
 		if v.Data != 0 {
 			return "True"
@@ -99,13 +120,29 @@ func (v Value) Format(arena []byte) string {
 		}
 		parts := make([]string, len(list))
 		for i, el := range list {
-			parts[i] = el.Format(arena)
+			parts[i] = el.formatRecursive(arena, depth+1)
 		}
 		if v.Type == TypeList {
 			return "[" + strings.Join(parts, ", ") + "]"
 		}
 		return "(" + strings.Join(parts, ", ") + ")"
 	case TypeDict:
+		if d, ok := v.Opaque.(map[string]any); ok {
+			parts := make([]string, 0, len(d))
+			for k, val := range d {
+				var vStr string
+				if vv, ok := val.(Value); ok {
+					vStr = vv.formatRecursive(arena, depth+1)
+				} else if vv, ok := val.(*[]Value); ok {
+					vStr = Value{Type: TypeList, Opaque: vv}.formatRecursive(arena, depth+1)
+				} else {
+					vStr = fmt.Sprintf("%v", val)
+				}
+				parts = append(parts, fmt.Sprintf("'%s': %s", k, vStr))
+			}
+			sort.Strings(parts) // Deterministic order for testing
+			return "{" + strings.Join(parts, ", ") + "}"
+		}
 		return fmt.Sprintf("%v", v.Opaque)
 	case TypeVoid:
 		return "None"

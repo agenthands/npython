@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	StackDepth = 128
-	MaxFrames  = 32
-	MaxLocals  = 16
+	StackDepth   = 128
+	MaxFrames    = 32
+	MaxLocals    = 16
+	MaxArenaSize = 10 * 1024 * 1024 // 10MB limit
 )
 
 var (
@@ -108,6 +109,15 @@ func (m *Machine) Pop() value.Value {
 	}
 	m.SP--
 	return m.Stack[m.SP]
+}
+
+func (m *Machine) WriteArena(data []byte) (uint32, error) {
+	if len(m.Arena)+len(data) > MaxArenaSize {
+		return 0, errors.New("vm: arena overflow")
+	}
+	offset := uint32(len(m.Arena))
+	m.Arena = append(m.Arena, data...)
+	return offset, nil
 }
 
 func (m *Machine) Peek() value.Value {
@@ -250,8 +260,10 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			a := m.Pop()
 			if a.Type == value.TypeString {
 				res := value.UnpackString(a.Data, m.Arena) + b.Format(m.Arena)
-				off := uint32(len(m.Arena))
-				m.Arena = append(m.Arena, []byte(res)...)
+				off, err := m.WriteArena([]byte(res))
+				if err != nil {
+					return err
+				}
 				m.Push(value.Value{Type: value.TypeString, Data: value.PackString(off, uint32(len(res)))})
 			} else {
 				m.Push(value.Value{Type: value.TypeInt, Data: uint64(int64(a.Data) + int64(b.Data))})
@@ -268,6 +280,14 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			m.Push(value.Value{Type: value.TypeInt, Data: uint64(a * b)})
 			m.IP++
 		case OP_DIV:
+			b := m.Pop().Float()
+			a := m.Pop().Float()
+			if b == 0 {
+				return errors.New("vm: div0")
+			}
+			m.Push(value.Value{Type: value.TypeFloat, Data: math.Float64bits(a / b)})
+			m.IP++
+		case OP_FLOOR_DIV:
 			b := m.Pop().Int()
 			a := m.Pop().Int()
 			if b == 0 {
@@ -275,13 +295,40 @@ func (m *Machine) Run(gasLimit int) (err error) {
 			}
 			m.Push(value.Value{Type: value.TypeInt, Data: uint64(a / b)})
 			m.IP++
+		case OP_BIT_AND:
+			b := m.Pop().Int()
+			a := m.Pop().Int()
+			m.Push(value.Value{Type: value.TypeInt, Data: uint64(a & b)})
+			m.IP++
+		case OP_BIT_OR:
+			b := m.Pop().Int()
+			a := m.Pop().Int()
+			m.Push(value.Value{Type: value.TypeInt, Data: uint64(a | b)})
+			m.IP++
+		case OP_BIT_XOR:
+			b := m.Pop().Int()
+			a := m.Pop().Int()
+			m.Push(value.Value{Type: value.TypeInt, Data: uint64(a ^ b)})
+			m.IP++
+		case OP_LSHIFT:
+			b := m.Pop().Int()
+			a := m.Pop().Int()
+			m.Push(value.Value{Type: value.TypeInt, Data: uint64(a << b)})
+			m.IP++
+		case OP_RSHIFT:
+			b := m.Pop().Int()
+			a := m.Pop().Int()
+			m.Push(value.Value{Type: value.TypeInt, Data: uint64(a >> b)})
+			m.IP++
 		case OP_MOD:
 			b := m.Pop()
 			a := m.Pop()
 			if a.Type == value.TypeString {
 				res := strings.Replace(value.UnpackString(a.Data, m.Arena), "%s", b.Format(m.Arena), 1)
-				off := uint32(len(m.Arena))
-				m.Arena = append(m.Arena, []byte(res)...)
+				off, err := m.WriteArena([]byte(res))
+				if err != nil {
+					return err
+				}
 				m.Push(value.Value{Type: value.TypeString, Data: value.PackString(off, uint32(len(res)))})
 			} else {
 				if b.Data == 0 {
@@ -452,7 +499,10 @@ func (m *Machine) Run(gasLimit int) (err error) {
 				m.FP--
 				return errors.New("vm: stop marker")
 			}
+			retVal := m.Pop()
 			m.IP = m.Frames[m.FP].ReturnIP
+			m.SP = m.Frames[m.FP].BaseSP
+			m.Push(retVal)
 			m.FP--
 		case OP_ADDRESS:
 			tVal := m.Pop()

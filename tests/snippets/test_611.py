@@ -1,0 +1,1 @@
+print([x for x in range(2) if x % 2 == 0])

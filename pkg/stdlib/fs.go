@@ -75,14 +75,11 @@ func (s *FSSandbox) ReadFile(m *vm.Machine) error {
 
 	// We need to push the content to the Arena to return it as a string
 	// For now, we'll append it to the Arena and push the packed value.
-	offset := uint32(len(m.Arena))
-	length := uint32(len(data))
-	m.Arena = append(m.Arena, data...)
-
-	m.Push(value.Value{
-		Type: value.TypeString,
-		Data: value.PackString(offset, length),
-	})
+	offset, err := m.WriteArena(data)
+	if err != nil {
+		return err
+	}
+	m.Push(value.Value{Type: value.TypeString, Data: value.PackString(offset, uint32(len(data)))})
 
 	return nil
 }
